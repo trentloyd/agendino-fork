@@ -16,7 +16,6 @@ def mock_services(tmp_path):
     template_dir.mkdir()
     (template_dir / "home.html").write_text("<html></html>")
 
-    hidock_service = MagicMock()
     sqlite_db = MagicMock()
     local_repo = MagicMock()
     system_prompts_repo = MagicMock()
@@ -25,7 +24,6 @@ def mock_services(tmp_path):
     summarization_service = MagicMock()
 
     controller = DashboardController(
-        hidock_service=hidock_service,
         sqlite_db_repository=sqlite_db,
         local_recordings_repository=local_repo,
         transcription_service=transcription_service,
@@ -38,7 +36,6 @@ def mock_services(tmp_path):
 
     return {
         "controller": controller,
-        "hidock_service": hidock_service,
         "sqlite_db": sqlite_db,
         "local_repo": local_repo,
         "transcription_service": transcription_service,
@@ -406,7 +403,7 @@ class TestDashboardControllerDelete:
         mock_services["local_repo"].delete.return_value = True
         mock_services["sqlite_db"].delete_recording.return_value = True
 
-        result = ctrl.delete_recording("test", delete_device=False, delete_local=True, delete_db=True)
+        result = ctrl.delete_recording("test", delete_local=True, delete_db=True)
         assert result["ok"] is True
         assert "local file" in result["deleted"]
         assert "database record" in result["deleted"]
@@ -416,7 +413,7 @@ class TestDashboardControllerDelete:
         mock_services["local_repo"].delete.return_value = False
         mock_services["sqlite_db"].delete_recording.return_value = False
 
-        result = ctrl.delete_recording("test", delete_device=False, delete_local=True, delete_db=True)
+        result = ctrl.delete_recording("test", delete_local=True, delete_db=True)
         assert result["ok"] is False
 
     def test_delete_partial_success(self, mock_services):
@@ -424,7 +421,7 @@ class TestDashboardControllerDelete:
         mock_services["local_repo"].delete.return_value = True
         mock_services["sqlite_db"].delete_recording.return_value = False
 
-        result = ctrl.delete_recording("test", delete_device=False, delete_local=True, delete_db=True)
+        result = ctrl.delete_recording("test", delete_local=True, delete_db=True)
         assert result["ok"] is True
         assert "local file" in result["deleted"]
         assert len(result["warnings"]) > 0
@@ -446,7 +443,6 @@ class TestDashboardControllerPublish:
         (template_dir / "home.html").write_text("<html></html>")
 
         ctrl = DashboardController(
-            hidock_service=mock_services["hidock_service"],
             sqlite_db_repository=mock_services["sqlite_db"],
             local_recordings_repository=mock_services["local_repo"],
             transcription_service=mock_services["transcription_service"],
@@ -477,7 +473,6 @@ class TestDashboardControllerPublish:
         (template_dir / "home.html").write_text("<html></html>")
 
         ctrl = DashboardController(
-            hidock_service=mock_services["hidock_service"],
             sqlite_db_repository=mock_services["sqlite_db"],
             local_recordings_repository=mock_services["local_repo"],
             transcription_service=mock_services["transcription_service"],
@@ -502,7 +497,6 @@ class TestDashboardControllerPublish:
         (template_dir / "home.html").write_text("<html></html>")
 
         ctrl = DashboardController(
-            hidock_service=mock_services["hidock_service"],
             sqlite_db_repository=mock_services["sqlite_db"],
             local_recordings_repository=mock_services["local_repo"],
             transcription_service=mock_services["transcription_service"],
@@ -537,7 +531,6 @@ class TestDashboardControllerPublish:
         (template_dir / "home.html").write_text("<html></html>")
 
         ctrl = DashboardController(
-            hidock_service=mock_services["hidock_service"],
             sqlite_db_repository=mock_services["sqlite_db"],
             local_recordings_repository=mock_services["local_repo"],
             transcription_service=mock_services["transcription_service"],

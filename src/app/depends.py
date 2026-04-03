@@ -10,7 +10,6 @@ from repositories.LocalRecordingsRepository import LocalRecordingsRepository
 from repositories.SqliteDBRepository import SqliteDBRepository
 from repositories.SystemPromptsRepository import SystemPromptsRepository
 from repositories.VectorStoreRepository import VectorStoreRepository
-from services.HiDockDeviceService import HiDockDeviceService
 from services.NotionService import NotionService
 from services.RAGService import RAGService
 from services.SummarizationService import SummarizationService
@@ -32,8 +31,6 @@ def get_config():
     return config
 
 
-def get_hidock_service() -> HiDockDeviceService:
-    return HiDockDeviceService()
 
 
 def get_root_path() -> str:
@@ -97,7 +94,6 @@ def get_daily_recap_service() -> DailyRecapService | None:
 def get_dashboard_controller() -> DashboardController:
     _config = get_config()
     return DashboardController(
-        hidock_service=get_hidock_service(),
         sqlite_db_repository=get_sqlite_db_repository(),
         local_recordings_repository=get_local_recordings_repository(),
         transcription_service=get_transcription_service(),

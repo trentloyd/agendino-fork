@@ -1,10 +1,10 @@
 /**
  * Agendino Dashboard JS
  * Fetches recordings status from API and renders the table.
+ * Device communication uses WebUSB via HiDockDevice (hidock-device.js).
  */
 
 const API_URL = "/api/dashboard/recordings";
-const SYNC_URL = "/api/dashboard/sync";
 const TRANSCRIBE_URL = "/api/dashboard/transcribe";
 const TRANSCRIPT_URL = "/api/dashboard/transcript";
 const TRANSCRIPT_UPDATE_URL = "/api/dashboard/transcript";
@@ -24,6 +24,9 @@ const RECORDING_UPDATE_URL = "/api/dashboard/recording";
 const $ = (sel) => document.querySelector(sel);
 const show = (el) => el?.classList.remove("d-none");
 const hide = (el) => el?.classList.add("d-none");
+
+// ─── WebUSB device state ────────────────────────────────────────
+let _cachedDeviceData = null; // { info, files, storage } from last device probe
 
 function formatDuration(seconds) {
     if (seconds == null) return "—";
@@ -118,6 +121,106 @@ function renderRow(rec) {
     </tr>`;
 }
 
+/**
+ * Try to probe an already-paired WebUSB HiDock device.
+ * Returns { info, files, storage } or null on failure / no device.
+ */
+async function probeWebUSBDevice() {
+    if (!HiDockDevice.isSupported()) return null;
+    try {
+        const devices = await HiDockDevice.getDevices();
+        if (devices.length === 0) return null;
+        const hidock = devices[0];
+        await hidock.open();
+        try {
+            const info = await hidock.getDeviceInfo();
+            const files = await hidock.listFiles();
+            const storage = await hidock.getCardInfo();
+            return { info, files, storage, hidock };
+        } finally {
+            await hidock.close();
+        }
+    } catch (e) {
+        console.warn("WebUSB device probe failed:", e);
+        return null;
+    }
+}
+
+/**
+ * Merge server-side recordings data with WebUSB device data.
+ */
+function mergeDeviceData(serverData, deviceData) {
+    if (!deviceData || !deviceData.files) return serverData;
+
+    const deviceMap = {};
+    for (const f of deviceData.files) {
+        const bare = HiDockDevice.bareName(f.name);
+        deviceMap[bare] = f;
+    }
+
+    // Mark existing recordings as on_device
+    const existingNames = new Set();
+    for (const rec of serverData.recordings) {
+        existingNames.add(rec.name);
+        const devFile = deviceMap[rec.name];
+        if (devFile) {
+            rec.on_device = true;
+            rec.recording_type = devFile.recording_type;
+            if (!rec.duration && devFile.duration) rec.duration = devFile.duration;
+            if (!rec.size && devFile.length) rec.size = devFile.length;
+            if (!rec.date && devFile.create_date) {
+                rec.date = devFile.create_date;
+                rec.time = devFile.create_time;
+            }
+        }
+    }
+
+    // Add device-only recordings that aren't on server yet
+    for (const [bare, devFile] of Object.entries(deviceMap)) {
+        if (!existingNames.has(bare)) {
+            serverData.recordings.push({
+                name: bare,
+                on_device: true,
+                on_local: false,
+                in_db: false,
+                file_extension: "hda",
+                duration: devFile.duration,
+                size: devFile.length,
+                date: devFile.create_date,
+                time: devFile.create_time,
+                recorded_at: null,
+                recording_type: devFile.recording_type,
+                db_label: null,
+                db_id: null,
+                db_title: null,
+                db_tags: [],
+                has_transcript: false,
+                has_summary: false,
+                summary_count: 0,
+                notion_url: null,
+            });
+        }
+    }
+
+    // Update device section
+    const info = deviceData.info;
+    serverData.device = {
+        connected: true,
+        model: info ? `${info.model} (v${info.version}, S/N: ${info.serial})` : "HiDock",
+    };
+    serverData.counts.device = deviceData.files.length;
+
+    if (deviceData.storage) {
+        serverData.storage = {
+            used: deviceData.storage.used,
+            capacity: deviceData.storage.capacity,
+            status: deviceData.storage.status,
+        };
+    }
+
+    return serverData;
+}
+
 async function loadDashboard() {
     const loading = $("#loading");
     const table = $("#recordings-table");
@@ -131,9 +234,18 @@ async function loadDashboard() {
     hide(emptyEl);
 
     try {
-        const res = await fetch(API_URL);
+        const [res, deviceData] = await Promise.all([
+            fetch(API_URL),
+            probeWebUSBDevice(),
+        ]);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        let data = await res.json();
+
+        // Merge device data if available
+        if (deviceData) {
+            _cachedDeviceData = deviceData;
+            data = mergeDeviceData(data, deviceData);
+        }
 
         // Update status cards
         $("#count-device").textContent = data.counts.device;
@@ -229,23 +341,95 @@ document.addEventListener("DOMContentLoaded", () => {
             showSyncOverlay();
 
             try {
-                const res = await fetch(SYNC_URL, { method: "POST" });
-                const data = await res.json();
+                if (!HiDockDevice.isSupported()) throw new Error("WebUSB not supported in this browser");
+                const devices = await HiDockDevice.getDevices();
+                if (devices.length === 0) throw new Error("No paired HiDock device found. Click 'Connect Device' first.");
+                const hidock = devices[0];
+                await hidock.open();
 
-                if (!data.ok) {
-                    alert.className = "alert alert-danger";
-                    alert.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i> ${data.error}`;
-                } else if (data.synced.length === 0) {
+                let files;
+                try {
+                    files = await hidock.listFiles();
+                } catch (listErr) {
+                    await hidock.close();
+                    throw listErr;
+                }
+
+                if (files.length === 0) {
+                    await hidock.close();
                     alert.className = "alert alert-info";
-                    alert.innerHTML = `<i class="bi bi-info-circle me-1"></i> ${data.message}`;
-                } else {
-                    const list = data.synced.map(n => `<li>${n}</li>`).join("");
+                    alert.innerHTML = `<i class="bi bi-info-circle me-1"></i> No files on device to sync.`;
+                    show(alert);
+                    await loadDashboard();
+                    return;
+                }
+
+                // Pre-fetch existing recordings to skip already-synced files
+                const statusRes = await fetch(API_URL);
+                const statusData = await statusRes.json();
+                const existingNames = new Set(
+                    (statusData.recordings || [])
+                        .filter(r => r.on_local && r.in_db)
+                        .map(r => r.name)
+                );
+
+                const synced = [];
+                const skipped = [];
+                const errors = [];
+                for (const f of files) {
+                    try {
+                        if (existingNames.has(HiDockDevice.bareName(f.name))) {
+                            skipped.push(f.name);
+                            continue;
+                        }
+
+                        const data = await hidock.downloadFile(f.name, f.length);
+                        const blob = new Blob([data], { type: "audio/mpeg" });
+                        const form = new FormData();
+                        form.append("file", blob, f.name);
+                        form.append("label", HiDockDevice.bareName(f.name));
+                        const res = await fetch(UPLOAD_URL, { method: "POST", body: form });
+                        const result = await res.json();
+                        if (result.ok) {
+                            synced.push(f.name);
+                        } else if (result.error && result.error.toLowerCase().includes("already exists")) {
+                            skipped.push(f.name);
+                        } else {
+                            errors.push(`${f.name}: ${result.error}`);
+                        }
+                    } catch (fileErr) {
+                        errors.push(`${f.name}: ${fileErr.message}`);
+                    }
+                }
+
+                await hidock.close();
+
+                if (synced.length > 0) {
+                    const list = synced.map(n => `<li>${n}</li>`).join("");
                     alert.className = "alert alert-success";
-                    alert.innerHTML = `<i class="bi bi-check-circle me-1"></i> ${data.message}<ul class="mb-0 mt-1">${list}</ul>`;
+                    let msg = `<i class="bi bi-check-circle me-1"></i> Synced ${synced.length} file(s) from device.<ul class="mb-0 mt-1">${list}</ul>`;
+                    if (skipped.length > 0) {
+                        msg += `<br><small class="text-muted">Skipped ${skipped.length} already-synced file(s).</small>`;
+                    }
+                    if (errors.length > 0) {
+                        msg += `<br><small class="text-muted">Warnings: ${errors.join("; ")}</small>`;
+                    }
+                    alert.innerHTML = msg;
+                } else if (skipped.length > 0 && errors.length === 0) {
+                    alert.className = "alert alert-info";
+                    alert.innerHTML = `<i class="bi bi-info-circle me-1"></i> All ${skipped.length} file(s) already synced — nothing new to download.`;
+                } else if (errors.length > 0) {
+                    alert.className = "alert alert-danger";
+                    let msg = `<i class="bi bi-exclamation-triangle me-1"></i> Sync failed: ${errors.join("; ")}`;
+                    if (skipped.length > 0) {
+                        msg += `<br><small class="text-muted">Skipped ${skipped.length} already-synced file(s).</small>`;
+                    }
+                    alert.innerHTML = msg;
+                } else {
+                    alert.className = "alert alert-info";
+                    alert.innerHTML = `<i class="bi bi-info-circle me-1"></i> No new files to sync.`;
                 }
                 show(alert);
-
-                // Refresh the table after sync
                 await loadDashboard();
             } catch (err) {
                 alert.className = "alert alert-danger";
@@ -255,6 +439,31 @@ document.addEventListener("DOMContentLoaded", () => {
                 hideSyncOverlay();
                 icon.classList.remove("spin");
                 syncBtn.classList.remove("disabled");
+            }
+        });
+    }
+
+    // --- Connect Device (WebUSB pairing) ---
+    const connectBtn = $("#btn-connect-device");
+    const navConnect = $("#nav-connect-device");
+    const navSync = $("#nav-sync-device");
+
+    // Hide WebUSB buttons if not supported
+    if (!window.HiDockDevice || !HiDockDevice.isSupported()) {
+        if (navConnect) hide(navConnect);
+        if (navSync) hide(navSync);
+    }
+
+    if (connectBtn && window.HiDockDevice && HiDockDevice.isSupported()) {
+        connectBtn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            try {
+                await HiDockDevice.requestDevice();
+                await loadDashboard();
+            } catch (err) {
+                if (err.name !== "NotFoundError") { // user cancelled picker
+                    console.error("Connect device failed:", err);
+                }
             }
         });
     }
@@ -1547,45 +1756,84 @@ document.addEventListener("DOMContentLoaded", () => {
             show(delRecProgress);
             hide(delRecResult);
 
-            const body = {
-                delete_device: delRecChkDevice.checked,
-                delete_local: delRecChkLocal.checked,
-                delete_db: delRecChkDb.checked,
-            };
+            const deleteDevice = delRecChkDevice.checked;
+            const deleteLocal = delRecChkLocal.checked;
+            const deleteDb = delRecChkDb.checked;
 
-            try {
-                const res = await fetch(`${DELETE_RECORDING_URL}/${encodeURIComponent(currentDelRecName)}`, {
-                    method: "DELETE",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(body),
-                });
-                const data = await res.json();
-
-                hide(delRecProgress);
-                if (data.ok) {
-                    delRecResult.className = "mt-3 alert alert-success";
-                    let msg = `<i class="bi bi-check-circle me-1"></i>${data.message}`;
-                    if (data.warnings && data.warnings.length > 0) {
-                        msg += `<br><small class="text-muted">${data.warnings.join("; ")}</small>`;
+            // --- Step 1: Delete from device via WebUSB (browser-side) ---
+            if (deleteDevice && HiDockDevice.isSupported()) {
+                try {
+                    const devices = await HiDockDevice.getDevices();
+                    if (devices.length > 0) {
+                        const hidock = devices[0];
+                        await hidock.open();
+                        try {
+                            const hdaName = `${currentDelRecName}.hda`;
+                            await hidock.deleteFile(hdaName);
+                        } finally {
+                            await hidock.close();
+                        }
                     }
-                    delRecResult.innerHTML = msg;
-                    show(delRecResult);
-                    setTimeout(async () => {
-                        closeDeleteRecModal();
-                        await loadDashboard();
-                    }, 1200);
-                } else {
+                } catch (devErr) {
+                    console.warn("Device delete failed:", devErr);
+                    // Continue with server-side deletion anyway
+                }
+            }
+
+            // --- Step 2: Delete local / DB via server ---
+            if (deleteLocal || deleteDb) {
+                const body = {
+                    delete_device: false, // Already handled via WebUSB above
+                    delete_local: deleteLocal,
+                    delete_db: deleteDb,
+                };
+
+                try {
+                    const res = await fetch(`${DELETE_RECORDING_URL}/${encodeURIComponent(currentDelRecName)}`, {
+                        method: "DELETE",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await res.json();
+
+                    hide(delRecProgress);
+                    if (data.ok) {
+                        let sources = [...(data.deleted || [])];
+                        if (deleteDevice) sources.unshift("device");
+                        delRecResult.className = "mt-3 alert alert-success";
+                        let msg = `<i class="bi bi-check-circle me-1"></i>Deleted '${currentDelRecName}' from: ${sources.join(", ")}`;
+                        if (data.warnings && data.warnings.length > 0) {
+                            msg += `<br><small class="text-muted">${data.warnings.join("; ")}</small>`;
+                        }
+                        delRecResult.innerHTML = msg;
+                        show(delRecResult);
+                        setTimeout(async () => {
+                            closeDeleteRecModal();
+                            await loadDashboard();
+                        }, 1200);
+                    } else {
+                        delRecResult.className = "mt-3 alert alert-danger";
+                        delRecResult.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>${data.error}`;
+                        show(delRecResult);
+                        show(delRecActions);
+                    }
+                } catch (err) {
+                    hide(delRecProgress);
                     delRecResult.className = "mt-3 alert alert-danger";
-                    delRecResult.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>${data.error}`;
+                    delRecResult.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>Delete failed: ${err.message}`;
                     show(delRecResult);
                     show(delRecActions);
                 }
-            } catch (err) {
+            } else {
+                // Device-only deletion
                 hide(delRecProgress);
-                delRecResult.className = "mt-3 alert alert-danger";
-                delRecResult.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>Delete failed: ${err.message}`;
+                delRecResult.className = "mt-3 alert alert-success";
+                delRecResult.innerHTML = `<i class="bi bi-check-circle me-1"></i>Deleted '${currentDelRecName}' from device`;
                 show(delRecResult);
-                show(delRecActions);
+                setTimeout(async () => {
+                    closeDeleteRecModal();
+                    await loadDashboard();
+                }, 1200);
             }
         });
     }

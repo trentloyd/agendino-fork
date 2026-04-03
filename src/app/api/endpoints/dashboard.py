@@ -22,12 +22,6 @@ async def recordings_status(
     return dashboard_controller.get_recordings_status()
 
 
-@router.post("/sync")
-async def sync_recordings(
-    dashboard_controller: DashboardController = Depends(depends.get_dashboard_controller),
-):
-    return dashboard_controller.sync_device_recordings()
-
 
 @router.post("/upload")
 async def upload_recording(
@@ -163,7 +157,6 @@ async def delete_recording(
 ):
     return dashboard_controller.delete_recording(
         name,
-        body.delete_device,
         body.delete_local,
         body.delete_db,
     )

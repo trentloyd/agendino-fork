@@ -11,7 +11,6 @@ from models.DBTask import DBTask
 from repositories.LocalRecordingsRepository import LocalRecordingsRepository, ALLOWED_AUDIO_EXTENSIONS
 from repositories.SqliteDBRepository import SqliteDBRepository
 from repositories.SystemPromptsRepository import SystemPromptsRepository
-from services.HiDockDeviceService import HiDockDeviceService
 from services.SummarizationService import SummarizationService
 from services.TaskGenerationService import TaskGenerationService
 from services.TranscriptionService import TranscriptionService
@@ -32,7 +31,6 @@ MIME_TYPES = {
 class DashboardController:
     def __init__(
         self,
-        hidock_service: HiDockDeviceService,
         sqlite_db_repository: SqliteDBRepository,
         local_recordings_repository: LocalRecordingsRepository,
         transcription_service: TranscriptionService,
@@ -42,7 +40,6 @@ class DashboardController:
         template_path: str,
         publish_services: dict[str, object] | None = None,
     ):
-        self._hidock_service = hidock_service
         self._sqlite_db_repository = sqlite_db_repository
         self._local_recordings_repository = local_recordings_repository
         self._transcription_service = transcription_service
@@ -75,50 +72,13 @@ class DashboardController:
     def home(self, request: Request):
         return self._templates.TemplateResponse(request=request, name="home.html")
 
-    def list_devices(self):
-        return self._hidock_service.list_devices()
-
-    def list_device_recordings(self, device_pid: int):
-        device = self._hidock_service.get_device_from_pid(device_pid)
-        if not device:
-            raise ValueError(f"No HiDock device found for PID {device_pid}")
-        return device.list_files()
-
     def list_local_recordings(self):
         return self._local_recordings_repository.get_all()
-
-    def _open_device(self):
-        from models.HiDockDevice import HiDockDevice
-
-        devices = self._hidock_service.list_devices()
-        if not devices:
-            return None, None
-        hidock = HiDockDevice(devices[0])
-        hidock.open()
-        try:
-            info = hidock.get_device_info()
-        except Exception:
-            info = None
-        return hidock, info
 
     def get_recordings_status(self) -> dict:
         local_files = self._local_recordings_repository.get_all()
         db_recordings = self._sqlite_db_repository.get_recordings()
         latest_summaries = self._sqlite_db_repository.get_latest_summaries_map()
-
-        device_info = None
-        device_files = []
-        storage_info = None
-        try:
-            hidock, device_info = self._open_device()
-            if hidock:
-                try:
-                    device_files = hidock.list_files()
-                    storage_info = hidock.get_card_info()
-                finally:
-                    hidock.close()
-        except Exception:
-            pass
 
         # Map bare name → local filename (preserving actual extension)
         local_map: dict[str, str] = {}
@@ -126,10 +86,8 @@ class DashboardController:
             local_map[self._bare_name(f)] = f
 
         db_map = {self._bare_name(r.name): r for r in db_recordings}
-        device_map = {self._bare_name(f.name): f for f in device_files}
 
         all_names = set()
-        all_names.update(device_map.keys())
         all_names.update(local_map.keys())
         all_names.update(db_map.keys())
 
@@ -143,7 +101,6 @@ class DashboardController:
             ),
             reverse=True,
         ):
-            dev_rec = device_map.get(bare_name)
             on_local = bare_name in local_map
             db_rec = db_map.get(bare_name)
             latest_summary = latest_summaries.get(bare_name)
@@ -156,7 +113,7 @@ class DashboardController:
                 _, ext = os.path.splitext(local_map[bare_name])
                 file_ext = ext.lstrip(".").lower() if ext else "hda"
 
-            # Parse date/time: DB recorded_at > device date > name-parsed date
+            # Parse date/time: DB recorded_at > name-parsed date
             rec_date = None
             rec_time = None
             db_recorded_at = db_rec.recorded_at if db_rec else None
@@ -164,29 +121,26 @@ class DashboardController:
                 parts = db_recorded_at.split(" ", 1)
                 rec_date = parts[0]
                 rec_time = parts[1] if len(parts) > 1 else None
-            elif dev_rec:
-                rec_date = dev_rec.create_date
-                rec_time = dev_rec.create_time
             if not rec_date:
                 parsed_dt = self._parse_recording_datetime(bare_name)
                 if parsed_dt:
                     rec_date, rec_time = parsed_dt.split(" ", 1)
 
-            # Duration: device > DB (if > 0)
-            duration = dev_rec.duration if dev_rec else None
-            if duration is None and db_rec and db_rec.duration and db_rec.duration > 0:
+            # Duration from DB
+            duration = None
+            if db_rec and db_rec.duration and db_rec.duration > 0:
                 duration = db_rec.duration
 
-            # Size: device > local file
-            size = dev_rec.length if dev_rec else None
-            if size is None and on_local:
+            # Size from local file
+            size = None
+            if on_local:
                 local_filename = local_map[bare_name]
                 size = self._local_recordings_repository.get_file_size(local_filename)
 
             recordings.append(
                 {
                     "name": bare_name,
-                    "on_device": dev_rec is not None,
+                    "on_device": False,
                     "on_local": on_local,
                     "in_db": db_rec is not None,
                     "file_extension": file_ext,
@@ -195,7 +149,7 @@ class DashboardController:
                     "date": rec_date,
                     "time": rec_time,
                     "recorded_at": db_recorded_at,
-                    "recording_type": dev_rec.recording_type if dev_rec else None,
+                    "recording_type": None,
                     "db_label": db_rec.label if db_rec else None,
                     "db_id": db_rec.id if db_rec else None,
                     "db_title": latest_summary.title if latest_summary else None,
@@ -211,74 +165,18 @@ class DashboardController:
 
         return {
             "device": {
-                "connected": device_info is not None,
-                "model": str(device_info) if device_info else None,
+                "connected": False,
+                "model": None,
             },
-            "storage": (
-                {
-                    "used": storage_info["used"] if storage_info else None,
-                    "capacity": storage_info["capacity"] if storage_info else None,
-                    "status": storage_info["status"] if storage_info else None,
-                }
-                if storage_info
-                else None
-            ),
+            "storage": None,
             "counts": {
-                "device": len(device_files),
+                "device": 0,
                 "local": len(local_files),
                 "db": len(db_recordings),
             },
             "recordings": recordings,
         }
 
-    def sync_device_recordings(self) -> dict:
-        hidock, device_info = self._open_device()
-        if not hidock:
-            return {"ok": False, "error": "No HiDock device connected"}
-
-        try:
-            device_files = hidock.list_files()
-            if not device_files:
-                return {"ok": True, "synced": [], "skipped": [], "message": "No files on device"}
-
-            synced = []
-            skipped = []
-
-            for rec in device_files:
-                bare_name = self._bare_name(rec.name)
-                hda_name = f"{bare_name}.hda"
-
-                already_local = self._local_recordings_repository.exists(hda_name)
-                already_in_db = self._sqlite_db_repository.get_recording_by_name(bare_name) is not None
-
-                if already_local and already_in_db:
-                    skipped.append(bare_name)
-                    continue
-
-                if not already_local:
-                    data = hidock.download_file(rec.name, rec.length)
-                    self._local_recordings_repository.save(hda_name, data)
-
-                if not already_in_db:
-                    db_rec = DBRecording(
-                        id=None,
-                        name=bare_name,
-                        label="",
-                        duration=int(rec.duration),
-                        created_at=datetime.now(),
-                    )
-                    self._sqlite_db_repository.insert_recording(db_rec)
-
-                synced.append(bare_name)
-
-            return {
-                "ok": True,
-                "synced": synced,
-                "skipped": skipped,
-                "message": f"Synced {len(synced)} recording(s), skipped {len(skipped)}",
-            }
-        finally:
-            hidock.close()
 
     def upload_recording(self, filename: str, file_data: bytes, label: str = "") -> dict:
         """Save an uploaded audio file locally and insert a DB record."""
@@ -353,30 +251,9 @@ class DashboardController:
             return {"ok": False, "error": f"Recording '{bare_name}' not found"}
         return {"ok": True, "name": bare_name, "recorded_at": recorded_at}
 
-    def _delete_device_file(self, name: str) -> dict:
-        bare_name = self._bare_name(name)
-        hda_name = f"{bare_name}.hda"
-
-        hidock, _ = self._open_device()
-        if not hidock:
-            return {"ok": False, "error": "No HiDock device connected"}
-
-        try:
-            result = hidock.delete_file(hda_name)
-            status = result.get("result", "failed")
-            if status == "success":
-                return {"ok": True, "message": f"Deleted '{bare_name}' from device"}
-            elif status == "not-exists":
-                return {"ok": False, "error": f"File '{bare_name}' not found on device"}
-            else:
-                return {"ok": False, "error": f"Failed to delete '{bare_name}' from device"}
-        finally:
-            hidock.close()
-
     def delete_recording(
         self,
         name: str,
-        delete_device: bool,
         delete_local: bool,
         delete_db: bool,
     ) -> dict:
@@ -387,12 +264,6 @@ class DashboardController:
         results = []
         errors = []
 
-        if delete_device:
-            device_result = self._delete_device_file(bare_name)
-            if device_result["ok"]:
-                results.append("device")
-            else:
-                errors.append(f"Device: {device_result['error']}")
 
         if delete_local:
             deleted = self._local_recordings_repository.delete(local_filename)
