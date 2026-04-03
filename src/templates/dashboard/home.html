@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agendino — Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/source-sans-3@5.0.12/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+    <div class="app-wrapper">
+
+        <!-- Navbar -->
+        <nav class="app-header navbar navbar-expand bg-body">
+            <div class="container-fluid">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" data-lte-toggle="sidebar" href="#" role="button">
+                            <i class="bi bi-list"></i>
+                        </a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="btn-upload" role="button" title="Upload recording">
+                            <i class="bi bi-upload"></i> Upload
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="btn-sync" role="button" title="Sync device files">
+                            <i class="bi bi-cloud-download"></i> Sync
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="btn-refresh" role="button" title="Refresh">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Sidebar -->
+        <aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
+            <div class="sidebar-brand">
+                <a href="/" class="brand-link">
+                    <span class="brand-text fw-light">
+                        <i class="bi bi-soundwave me-1"></i> Agendino
+                    </span>
+                </a>
+            </div>
+            <div class="sidebar-wrapper">
+                <nav class="mt-2">
+                    <ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview" role="menu">
+                        <li class="nav-item">
+                            <a href="/" class="nav-link active">
+                                <i class="nav-icon bi bi-speedometer"></i>
+                                <p>Dashboard</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/calendar" class="nav-link">
+                                <i class="nav-icon bi bi-calendar3"></i>
+                                <p>Calendar</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/proactor" class="nav-link">
+                                <i class="nav-icon bi bi-shield-check"></i>
+                                <p>Proactor</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/knowledge" class="nav-link">
+                                <i class="nav-icon bi bi-diagram-3"></i>
+                                <p>Knowledge Base</p>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <div class="app-content-header">
+                <div class="container-fluid">
+                    <div class="row">
+                        <div class="col-sm-6"><h3 class="mb-0">Dashboard</h3></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="app-content">
+                <div class="container-fluid">
+
+                    <!-- Status Cards -->
+                    <div class="row mb-4" id="status-cards">
+                        <div class="col-lg-3 col-6">
+                            <div class="small-box text-bg-primary">
+                                <div class="inner">
+                                    <h3 id="count-device">—</h3>
+                                    <p>On Device</p>
+                                </div>
+                                <div class="icon"><i class="bi bi-usb-drive"></i></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-6">
+                            <div class="small-box text-bg-success">
+                                <div class="inner">
+                                    <h3 id="count-local">—</h3>
+                                    <p>Local Files</p>
+                                </div>
+                                <div class="icon"><i class="bi bi-folder"></i></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-6">
+                            <div class="small-box text-bg-warning">
+                                <div class="inner">
+                                    <h3 id="count-db">—</h3>
+                                    <p>In Database</p>
+                                </div>
+                                <div class="icon"><i class="bi bi-database"></i></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-6">
+                            <div class="small-box text-bg-info" id="device-status-card">
+                                <div class="inner">
+                                    <h3 id="device-status">—</h3>
+                                    <p id="device-model">Device</p>
+                                    <div id="storage-info" class="d-none mt-1" style="font-size:.78rem;opacity:.85;">
+                                        <i class="bi bi-hdd me-1"></i>
+                                        <span id="storage-used">—</span> / <span id="storage-capacity">—</span>
+                                        <div class="progress mt-1" style="height:4px;">
+                                            <div id="storage-bar" class="progress-bar" role="progressbar" style="width:0%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="icon"><i class="bi bi-plug"></i></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sync Result -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div id="sync-alert" class="alert d-none" role="alert"></div>
+                        </div>
+                    </div>
+
+                    <!-- Recordings Table -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3 class="card-title">
+                                        <i class="bi bi-mic me-1"></i> Recordings
+                                    </h3>
+                                </div>
+                                <div class="card-body table-responsive p-0">
+                                    <div id="loading" class="text-center p-4">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading…</span>
+                                        </div>
+                                        <p class="mt-2 text-muted">Fetching recordings…</p>
+                                    </div>
+                                    <div id="error-alert" class="alert alert-danger m-3 d-none" role="alert"></div>
+                                    <table class="table table-hover table-striped align-middle d-none" id="recordings-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Date</th>
+                                                <th>Duration</th>
+                                                <th>Size</th>
+                                                <th class="text-center">Type</th>
+                                                <th class="text-center">Device</th>
+                                                <th class="text-center">Local</th>
+                                                <th class="text-center">DB</th>
+                                                <th>Title</th>
+                                                <th>Tags</th>
+                                                <th class="text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="recordings-body"></tbody>
+                                    </table>
+                                    <div id="empty-state" class="text-center text-muted p-5 d-none">
+                                        <i class="bi bi-inbox" style="font-size:3rem"></i>
+                                        <p class="mt-2">No recordings found.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <div class="float-end d-none d-sm-inline">Agendino</div>
+            <strong>HiDock Admin Dashboard</strong>
+        </footer>
+
+    </div>
+
+    <!-- Audio Player Modal -->
+    <div id="audio-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 500px;">
+            <div class="transcript-modal-header" style="background: var(--bs-secondary);">
+                <h5 class="mb-0"><i class="bi bi-play-circle me-2"></i>Audio — <span id="audio-modal-name"></span></h5>
+                <button type="button" class="btn-close btn-close-white" id="audio-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body audio-player-body">
+                <audio id="audio-player" controls preload="auto" class="w-100"></audio>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transcript Modal -->
+    <div id="transcript-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal">
+            <div class="transcript-modal-header">
+                <h5 class="mb-0"><i class="bi bi-file-text me-2"></i>Transcript — <span id="transcript-modal-name"></span></h5>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-light" id="transcript-edit-toggle">
+                        <i class="bi bi-pencil-square"></i> Edit
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success d-none" id="transcript-save-btn">
+                        <i class="bi bi-check-lg"></i> Save
+                    </button>
+                    <button type="button" class="btn-close btn-close-white" id="transcript-modal-close"></button>
+                </div>
+            </div>
+            <div class="transcript-modal-body" id="transcript-modal-body">
+                <div class="text-center p-5" id="transcript-loading">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Loading transcript…</p>
+                </div>
+                <div id="transcript-audio-player" class="d-none mb-3 p-3 bg-light rounded">
+                    <small class="text-muted d-block mb-2"><i class="bi bi-volume-up me-1"></i>Audio</small>
+                    <audio id="transcript-audio" controls preload="auto" class="w-100" style="border-radius: var(--bs-border-radius);"></audio>
+                </div>
+                <div id="transcript-content" class="d-none"></div>
+                <div id="transcript-speaker-editor" class="d-none mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Rename speakers</h6>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="transcript-reset-speakers-btn" title="Reset all speaker names to original">
+                                <i class="bi bi-arrow-counterclockwise"></i> Reset
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-success" id="transcript-apply-speakers-btn" title="Apply speaker renames to entire transcript">
+                                <i class="bi bi-arrow-repeat"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                    <div id="transcript-speaker-list" class="transcript-speaker-list"></div>
+                </div>
+                <textarea id="transcript-editor" class="form-control d-none" rows="16"></textarea>
+                <div id="transcript-save-feedback" class="small mt-2 d-none"></div>
+                <div id="transcript-error" class="alert alert-danger m-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Modal -->
+    <div id="summary-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal">
+            <div class="transcript-modal-header" style="background: var(--bs-info);">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>Summary — <span id="summary-modal-name"></span></h5>
+                <button type="button" class="btn-close btn-close-white" id="summary-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body" id="summary-modal-body">
+                <div class="text-center p-5" id="summary-loading">
+                    <div class="spinner-border text-info" role="status"></div>
+                    <p class="mt-2 text-muted">Loading summary…</p>
+                </div>
+                <div id="summary-content" class="summary-content d-none"></div>
+                <div id="summary-error" class="alert alert-danger m-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prompt Picker Modal -->
+    <div id="prompt-picker-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 600px;">
+            <div class="transcript-modal-header" style="background: var(--bs-warning); color: var(--bs-dark);">
+                <h5 class="mb-0"><i class="bi bi-stars me-2"></i>Summarize — <span id="prompt-picker-name"></span></h5>
+                <button type="button" class="btn-close" id="prompt-picker-close"></button>
+            </div>
+            <div class="transcript-modal-body">
+                <p class="text-muted mb-3">Select a system prompt to generate the summary:</p>
+                <div class="text-center p-4" id="prompt-loading">
+                    <div class="spinner-border text-warning" role="status"></div>
+                    <p class="mt-2 text-muted">Loading prompts…</p>
+                </div>
+                <div id="prompt-list" class="d-none"></div>
+                <div id="prompt-picker-error" class="alert alert-danger m-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div id="share-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 500px;">
+            <div class="transcript-modal-header" style="background: var(--bs-success);">
+                <h5 class="mb-0"><i class="bi bi-share me-2"></i>Share — <span id="share-modal-name"></span></h5>
+                <button type="button" class="btn-close btn-close-white" id="share-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body" id="share-modal-body">
+                <p class="text-muted mb-3">Select where to publish this summary:</p>
+                <div class="text-center p-4" id="share-loading">
+                    <div class="spinner-border text-success" role="status"></div>
+                    <p class="mt-2 text-muted">Loading destinations…</p>
+                </div>
+                <div id="share-destinations" class="d-none"></div>
+                <div id="share-publishing" class="text-center p-4 d-none">
+                    <div class="spinner-border text-success" role="status"></div>
+                    <p class="mt-2 text-muted">Publishing…</p>
+                </div>
+                <div id="share-success" class="d-none">
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle me-1"></i>
+                        <span id="share-success-msg">Published successfully!</span>
+                    </div>
+                    <div class="text-center">
+                        <a id="share-success-link" href="#" target="_blank" class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open in Notion
+                        </a>
+                    </div>
+                </div>
+                <div id="share-error" class="alert alert-danger m-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Tasks Modal -->
+    <div id="tasks-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 850px;">
+            <div class="transcript-modal-header" style="background: var(--bs-purple, #6f42c1);">
+                <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>Tasks — <span id="tasks-modal-name"></span></h5>
+                <button type="button" class="btn-close btn-close-white" id="tasks-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body" id="tasks-modal-body">
+                <div class="text-center p-5" id="tasks-loading">
+                    <div class="spinner-border" style="color: var(--bs-purple, #6f42c1);" role="status"></div>
+                    <p class="mt-2 text-muted">Generating tasks with AI…</p>
+                </div>
+                <div id="tasks-content" class="d-none"></div>
+                <div id="tasks-empty" class="text-center text-muted p-4 d-none">
+                    <i class="bi bi-clipboard-x" style="font-size: 2.5rem;"></i>
+                    <p class="mt-2">No tasks yet for this summary.</p>
+                    <button class="btn btn-sm btn-outline-primary" id="tasks-generate-btn-empty">
+                        <i class="bi bi-stars me-1"></i>Generate Tasks
+                    </button>
+                </div>
+                <div id="tasks-error" class="alert alert-danger m-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Recording Modal (local + DB + device) -->
+    <div id="delete-rec-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 480px;">
+            <div class="transcript-modal-header" style="background: var(--bs-danger);">
+                <h5 class="mb-0"><i class="bi bi-trash3 me-2"></i>Delete Recording</h5>
+                <button type="button" class="btn-close btn-close-white" id="delete-rec-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body">
+                <p class="mb-1 text-center">Select what to delete for:</p>
+                <p class="fw-bold text-center" id="delete-rec-modal-name"></p>
+                <div class="mb-3">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="delete-rec-chk-device">
+                        <label class="form-check-label" for="delete-rec-chk-device">
+                            <i class="bi bi-usb-drive me-1"></i> Delete from device
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="delete-rec-chk-local">
+                        <label class="form-check-label" for="delete-rec-chk-local">
+                            <i class="bi bi-folder me-1"></i> Delete local file
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="delete-rec-chk-db">
+                        <label class="form-check-label" for="delete-rec-chk-db">
+                            <i class="bi bi-database me-1"></i> Delete database record
+                            <small class="text-muted d-block">Removes transcript, summary, and all metadata</small>
+                        </label>
+                    </div>
+                </div>
+                <div id="delete-rec-modal-actions" class="text-center">
+                    <button class="btn btn-outline-secondary me-2" id="delete-rec-modal-cancel">Cancel</button>
+                    <button class="btn btn-danger" id="delete-rec-modal-confirm" disabled>
+                        <i class="bi bi-trash3 me-1"></i>Delete Selected
+                    </button>
+                </div>
+                <div id="delete-rec-modal-progress" class="text-center d-none">
+                    <div class="spinner-border text-danger" role="status"></div>
+                    <p class="mt-2 text-muted">Deleting…</p>
+                </div>
+                <div id="delete-rec-modal-result" class="d-none mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Recording Modal -->
+    <div id="upload-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 520px;">
+            <div class="transcript-modal-header" style="background: var(--bs-primary);">
+                <h5 class="mb-0"><i class="bi bi-upload me-2"></i>Upload Recording</h5>
+                <button type="button" class="btn-close btn-close-white" id="upload-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body">
+                <div id="upload-form-section">
+                    <div class="mb-3">
+                        <label for="upload-file-input" class="form-label">Audio file</label>
+                        <input class="form-control" type="file" id="upload-file-input"
+                               accept=".hda,.mp3,.wav,.m4a,.ogg,.webm,.flac,.aac,.wma">
+                        <div class="form-text">Supported: HDA, MP3, WAV, M4A, OGG, WebM, FLAC, AAC, WMA</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="upload-label-input" class="form-label">Label <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" id="upload-label-input" placeholder="e.g. Team standup">
+                    </div>
+                    <div class="text-end">
+                        <button class="btn btn-outline-secondary me-2" id="upload-cancel-btn">Cancel</button>
+                        <button class="btn btn-primary" id="upload-submit-btn" disabled>
+                            <i class="bi bi-upload me-1"></i>Upload
+                        </button>
+                    </div>
+                </div>
+                <div id="upload-progress" class="text-center p-4 d-none">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Uploading…</p>
+                </div>
+                <div id="upload-result" class="d-none mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/dashboard.js?v=2"></script>
+</body>
+</html>
+

@@ -1,0 +1,739 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime
+
+from fastapi import Request
+from fastapi.templating import Jinja2Templates
+
+from models.DBRecording import DBRecording
+from models.DBTask import DBTask
+from repositories.LocalRecordingsRepository import LocalRecordingsRepository, ALLOWED_AUDIO_EXTENSIONS
+from repositories.SqliteDBRepository import SqliteDBRepository
+from repositories.SystemPromptsRepository import SystemPromptsRepository
+from services.HiDockDeviceService import HiDockDeviceService
+from services.SummarizationService import SummarizationService
+from services.TaskGenerationService import TaskGenerationService
+from services.TranscriptionService import TranscriptionService
+
+MIME_TYPES = {
+    "hda": "audio/mpeg",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "m4a": "audio/mp4",
+    "ogg": "audio/ogg",
+    "webm": "audio/webm",
+    "flac": "audio/flac",
+    "aac": "audio/aac",
+    "wma": "audio/x-ms-wma",
+}
+
+
+class DashboardController:
+    def __init__(
+        self,
+        hidock_service: HiDockDeviceService,
+        sqlite_db_repository: SqliteDBRepository,
+        local_recordings_repository: LocalRecordingsRepository,
+        transcription_service: TranscriptionService,
+        summarization_service: SummarizationService,
+        task_generation_service: TaskGenerationService,
+        system_prompts_repository: SystemPromptsRepository,
+        template_path: str,
+        publish_services: dict[str, object] | None = None,
+    ):
+        self._hidock_service = hidock_service
+        self._sqlite_db_repository = sqlite_db_repository
+        self._local_recordings_repository = local_recordings_repository
+        self._transcription_service = transcription_service
+        self._summarization_service = summarization_service
+        self._task_generation_service = task_generation_service
+        self._system_prompts_repository = system_prompts_repository
+        self._templates = Jinja2Templates(directory=template_path)
+        self._publish_services: dict[str, object] = publish_services or {}
+
+    @staticmethod
+    def _bare_name(name: str) -> str:
+        """Strip any known audio extension from the filename."""
+        root, ext = os.path.splitext(name)
+        if ext.lower() in ALLOWED_AUDIO_EXTENSIONS:
+            return root
+        return name
+
+    @staticmethod
+    def _parse_recording_datetime(bare_name: str) -> str | None:
+        try:
+            parts = bare_name.split("-")
+            if len(parts) >= 2:
+                dt_str = f"{parts[0]}-{parts[1]}"
+                dt = datetime.strptime(dt_str, "%Y%b%d-%H%M%S")
+                return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, IndexError):
+            pass
+        return None
+
+    def home(self, request: Request):
+        return self._templates.TemplateResponse(request=request, name="home.html")
+
+    def list_devices(self):
+        return self._hidock_service.list_devices()
+
+    def list_device_recordings(self, device_pid: int):
+        device = self._hidock_service.get_device_from_pid(device_pid)
+        if not device:
+            raise ValueError(f"No HiDock device found for PID {device_pid}")
+        return device.list_files()
+
+    def list_local_recordings(self):
+        return self._local_recordings_repository.get_all()
+
+    def _open_device(self):
+        from models.HiDockDevice import HiDockDevice
+
+        devices = self._hidock_service.list_devices()
+        if not devices:
+            return None, None
+        hidock = HiDockDevice(devices[0])
+        hidock.open()
+        try:
+            info = hidock.get_device_info()
+        except Exception:
+            info = None
+        return hidock, info
+
+    def get_recordings_status(self) -> dict:
+        local_files = self._local_recordings_repository.get_all()
+        db_recordings = self._sqlite_db_repository.get_recordings()
+        latest_summaries = self._sqlite_db_repository.get_latest_summaries_map()
+
+        device_info = None
+        device_files = []
+        storage_info = None
+        try:
+            hidock, device_info = self._open_device()
+            if hidock:
+                try:
+                    device_files = hidock.list_files()
+                    storage_info = hidock.get_card_info()
+                finally:
+                    hidock.close()
+        except Exception:
+            pass
+
+        # Map bare name → local filename (preserving actual extension)
+        local_map: dict[str, str] = {}
+        for f in local_files:
+            local_map[self._bare_name(f)] = f
+
+        db_map = {self._bare_name(r.name): r for r in db_recordings}
+        device_map = {self._bare_name(f.name): f for f in device_files}
+
+        all_names = set()
+        all_names.update(device_map.keys())
+        all_names.update(local_map.keys())
+        all_names.update(db_map.keys())
+
+        recordings = []
+        for bare_name in sorted(
+            all_names,
+            key=lambda n: (
+                db_map.get(n).recorded_at
+                if db_map.get(n) and db_map.get(n).recorded_at
+                else self._parse_recording_datetime(n) or ""
+            ),
+            reverse=True,
+        ):
+            dev_rec = device_map.get(bare_name)
+            on_local = bare_name in local_map
+            db_rec = db_map.get(bare_name)
+            latest_summary = latest_summaries.get(bare_name)
+
+            # Determine file extension
+            file_ext = "hda"
+            if db_rec:
+                file_ext = db_rec.file_extension
+            elif on_local:
+                _, ext = os.path.splitext(local_map[bare_name])
+                file_ext = ext.lstrip(".").lower() if ext else "hda"
+
+            # Parse date/time: DB recorded_at > device date > name-parsed date
+            rec_date = None
+            rec_time = None
+            db_recorded_at = db_rec.recorded_at if db_rec else None
+            if db_recorded_at:
+                parts = db_recorded_at.split(" ", 1)
+                rec_date = parts[0]
+                rec_time = parts[1] if len(parts) > 1 else None
+            elif dev_rec:
+                rec_date = dev_rec.create_date
+                rec_time = dev_rec.create_time
+            if not rec_date:
+                parsed_dt = self._parse_recording_datetime(bare_name)
+                if parsed_dt:
+                    rec_date, rec_time = parsed_dt.split(" ", 1)
+
+            # Duration: device > DB (if > 0)
+            duration = dev_rec.duration if dev_rec else None
+            if duration is None and db_rec and db_rec.duration and db_rec.duration > 0:
+                duration = db_rec.duration
+
+            # Size: device > local file
+            size = dev_rec.length if dev_rec else None
+            if size is None and on_local:
+                local_filename = local_map[bare_name]
+                size = self._local_recordings_repository.get_file_size(local_filename)
+
+            recordings.append(
+                {
+                    "name": bare_name,
+                    "on_device": dev_rec is not None,
+                    "on_local": on_local,
+                    "in_db": db_rec is not None,
+                    "file_extension": file_ext,
+                    "duration": duration,
+                    "size": size,
+                    "date": rec_date,
+                    "time": rec_time,
+                    "recorded_at": db_recorded_at,
+                    "recording_type": dev_rec.recording_type if dev_rec else None,
+                    "db_label": db_rec.label if db_rec else None,
+                    "db_id": db_rec.id if db_rec else None,
+                    "db_title": latest_summary.title if latest_summary else None,
+                    "db_tags": latest_summary.tags.split(",") if latest_summary and latest_summary.tags else [],
+                    "has_transcript": (
+                        db_rec.transcript is not None and len(db_rec.transcript) > 0 if db_rec else False
+                    ),
+                    "has_summary": latest_summary is not None,
+                    "summary_count": len(self._sqlite_db_repository.get_summaries(bare_name)) if db_rec else 0,
+                    "notion_url": latest_summary.notion_url if latest_summary else None,
+                }
+            )
+
+        return {
+            "device": {
+                "connected": device_info is not None,
+                "model": str(device_info) if device_info else None,
+            },
+            "storage": (
+                {
+                    "used": storage_info["used"] if storage_info else None,
+                    "capacity": storage_info["capacity"] if storage_info else None,
+                    "status": storage_info["status"] if storage_info else None,
+                }
+                if storage_info
+                else None
+            ),
+            "counts": {
+                "device": len(device_files),
+                "local": len(local_files),
+                "db": len(db_recordings),
+            },
+            "recordings": recordings,
+        }
+
+    def sync_device_recordings(self) -> dict:
+        hidock, device_info = self._open_device()
+        if not hidock:
+            return {"ok": False, "error": "No HiDock device connected"}
+
+        try:
+            device_files = hidock.list_files()
+            if not device_files:
+                return {"ok": True, "synced": [], "skipped": [], "message": "No files on device"}
+
+            synced = []
+            skipped = []
+
+            for rec in device_files:
+                bare_name = self._bare_name(rec.name)
+                hda_name = f"{bare_name}.hda"
+
+                already_local = self._local_recordings_repository.exists(hda_name)
+                already_in_db = self._sqlite_db_repository.get_recording_by_name(bare_name) is not None
+
+                if already_local and already_in_db:
+                    skipped.append(bare_name)
+                    continue
+
+                if not already_local:
+                    data = hidock.download_file(rec.name, rec.length)
+                    self._local_recordings_repository.save(hda_name, data)
+
+                if not already_in_db:
+                    db_rec = DBRecording(
+                        id=None,
+                        name=bare_name,
+                        label="",
+                        duration=int(rec.duration),
+                        created_at=datetime.now(),
+                    )
+                    self._sqlite_db_repository.insert_recording(db_rec)
+
+                synced.append(bare_name)
+
+            return {
+                "ok": True,
+                "synced": synced,
+                "skipped": skipped,
+                "message": f"Synced {len(synced)} recording(s), skipped {len(skipped)}",
+            }
+        finally:
+            hidock.close()
+
+    def upload_recording(self, filename: str, file_data: bytes, label: str = "") -> dict:
+        """Save an uploaded audio file locally and insert a DB record."""
+        _, ext = os.path.splitext(filename)
+        ext_lower = ext.lower()
+        if ext_lower not in ALLOWED_AUDIO_EXTENSIONS:
+            allowed = ", ".join(sorted(ALLOWED_AUDIO_EXTENSIONS))
+            return {"ok": False, "error": f"Unsupported file type '{ext}'. Allowed: {allowed}"}
+
+        file_ext = ext_lower.lstrip(".")
+        bare_name = self._bare_name(filename)
+
+        # Reject duplicates
+        if self._local_recordings_repository.exists(filename):
+            return {"ok": False, "error": f"A file named '{filename}' already exists"}
+        if self._sqlite_db_repository.get_recording_by_name(bare_name):
+            return {"ok": False, "error": f"A recording named '{bare_name}' already exists in the database"}
+
+        # Save file to local_recordings
+        self._local_recordings_repository.save(filename, file_data)
+
+        # Extract audio duration using mutagen
+        duration = self._get_audio_duration(self._local_recordings_repository.get_path(filename))
+
+        # Insert DB record
+        db_rec = DBRecording(
+            id=None,
+            name=bare_name,
+            label=label or bare_name,
+            duration=duration,
+            file_extension=file_ext,
+            created_at=datetime.now(),
+        )
+        new_id = self._sqlite_db_repository.insert_recording(db_rec)
+
+        return {
+            "ok": True,
+            "name": bare_name,
+            "file_extension": file_ext,
+            "db_id": new_id,
+            "message": f"Uploaded '{filename}' successfully",
+        }
+
+    @staticmethod
+    def _get_audio_duration(file_path: str) -> int:
+        """Extract audio duration in seconds using mutagen. Returns 0 on failure."""
+        try:
+            from mutagen import File as MutagenFile
+
+            audio = MutagenFile(file_path)
+            if audio and audio.info and audio.info.length:
+                return int(audio.info.length)
+        except Exception:
+            pass
+        return 0
+
+    def update_recording_datetime(self, name: str, recorded_at: str) -> dict:
+        """Update the recorded_at datetime for a recording."""
+        bare_name = self._bare_name(name)
+        # Validate datetime format
+        try:
+            datetime.strptime(recorded_at, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            try:
+                datetime.strptime(recorded_at, "%Y-%m-%d %H:%M")
+                recorded_at = f"{recorded_at}:00"
+            except ValueError:
+                return {"ok": False, "error": "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM"}
+
+        updated = self._sqlite_db_repository.update_recording(bare_name, recorded_at=recorded_at)
+        if not updated:
+            return {"ok": False, "error": f"Recording '{bare_name}' not found"}
+        return {"ok": True, "name": bare_name, "recorded_at": recorded_at}
+
+    def _delete_device_file(self, name: str) -> dict:
+        bare_name = self._bare_name(name)
+        hda_name = f"{bare_name}.hda"
+
+        hidock, _ = self._open_device()
+        if not hidock:
+            return {"ok": False, "error": "No HiDock device connected"}
+
+        try:
+            result = hidock.delete_file(hda_name)
+            status = result.get("result", "failed")
+            if status == "success":
+                return {"ok": True, "message": f"Deleted '{bare_name}' from device"}
+            elif status == "not-exists":
+                return {"ok": False, "error": f"File '{bare_name}' not found on device"}
+            else:
+                return {"ok": False, "error": f"Failed to delete '{bare_name}' from device"}
+        finally:
+            hidock.close()
+
+    def delete_recording(
+        self,
+        name: str,
+        delete_device: bool,
+        delete_local: bool,
+        delete_db: bool,
+    ) -> dict:
+        bare_name = self._bare_name(name)
+        db_rec = self._sqlite_db_repository.get_recording_by_name(bare_name)
+        file_ext = db_rec.file_extension if db_rec else "hda"
+        local_filename = f"{bare_name}.{file_ext}"
+        results = []
+        errors = []
+
+        if delete_device:
+            device_result = self._delete_device_file(bare_name)
+            if device_result["ok"]:
+                results.append("device")
+            else:
+                errors.append(f"Device: {device_result['error']}")
+
+        if delete_local:
+            deleted = self._local_recordings_repository.delete(local_filename)
+            if deleted:
+                results.append("local file")
+            else:
+                errors.append("Local file not found")
+
+        if delete_db:
+            deleted = self._sqlite_db_repository.delete_recording(bare_name)
+            if deleted:
+                results.append("database record")
+            else:
+                errors.append("Database record not found")
+
+        if errors and not results:
+            return {"ok": False, "error": "; ".join(errors)}
+
+        message = f"Deleted '{bare_name}' from: {', '.join(results)}"
+        if errors:
+            message += f" (warnings: {'; '.join(errors)})"
+
+        return {"ok": True, "message": message, "deleted": results, "warnings": errors}
+
+    def _resolve_local_filename(self, bare_name: str) -> tuple[str, str]:
+        """Return (local_filename, file_extension) for a recording.
+
+        Checks the DB first, then scans local files for any known extension.
+        """
+        db_rec = self._sqlite_db_repository.get_recording_by_name(bare_name)
+        if db_rec:
+            ext = db_rec.file_extension
+            local_name = f"{bare_name}.{ext}"
+            if self._local_recordings_repository.exists(local_name):
+                return local_name, ext
+
+        # Fallback: scan local files for any known extension
+        for ext_dot in ALLOWED_AUDIO_EXTENSIONS:
+            candidate = f"{bare_name}{ext_dot}"
+            if self._local_recordings_repository.exists(candidate):
+                return candidate, ext_dot.lstrip(".")
+        return f"{bare_name}.hda", "hda"
+
+    def transcribe_recording(self, name: str) -> dict:
+        bare_name = self._bare_name(name)
+        local_filename, file_ext = self._resolve_local_filename(bare_name)
+
+        if not self._local_recordings_repository.exists(local_filename):
+            return {"ok": False, "error": f"Local file '{local_filename}' not found"}
+
+        db_rec = self._sqlite_db_repository.get_recording_by_name(bare_name)
+        if db_rec and db_rec.transcript:
+            return {"ok": True, "transcript": db_rec.transcript, "cached": True}
+
+        audio_path = self._local_recordings_repository.get_path(local_filename)
+        mime_type = MIME_TYPES.get(file_ext, "audio/mpeg")
+        try:
+            transcript = self._transcription_service.transcribe(audio_path, mime_type=mime_type)
+        except Exception as e:
+            return {"ok": False, "error": f"Transcription failed: {str(e)}"}
+
+        self._sqlite_db_repository.save_transcript(bare_name, transcript)
+        return {"ok": True, "transcript": transcript, "cached": False}
+
+    def get_audio_file_path(self, name: str) -> tuple[str | None, str]:
+        """Return (file_path, file_extension) or (None, '') if not found."""
+        bare_name = self._bare_name(name)
+        local_filename, file_ext = self._resolve_local_filename(bare_name)
+        if not self._local_recordings_repository.exists(local_filename):
+            return None, ""
+        return self._local_recordings_repository.get_path(local_filename), file_ext
+
+    def get_transcript(self, name: str) -> dict:
+        bare_name = self._bare_name(name)
+        transcript = self._sqlite_db_repository.get_transcript(bare_name)
+        if transcript:
+            return {"ok": True, "transcript": transcript}
+        return {"ok": False, "error": "No transcript found"}
+
+    def update_transcript(self, name: str, transcript: str) -> dict:
+        bare_name = self._bare_name(name)
+        updated = self._sqlite_db_repository.update_transcript(bare_name, transcript)
+        if not updated:
+            return {"ok": False, "error": f"Recording '{bare_name}' not found"}
+        return {"ok": True, "name": bare_name, "transcript": transcript}
+
+    def list_system_prompts(self) -> dict:
+        prompts = self._system_prompts_repository.get_all()
+        return {"ok": True, "prompts": prompts}
+
+    def summarize_recording(self, name: str, prompt_id: str) -> dict:
+        bare_name = self._bare_name(name)
+
+        transcript = self._sqlite_db_repository.get_transcript(bare_name)
+        if not transcript:
+            return {"ok": False, "error": "No transcript found — transcribe the recording first"}
+
+        prompt_content = self._system_prompts_repository.get_prompt_content(prompt_id)
+        if not prompt_content:
+            return {"ok": False, "error": f"System prompt '{prompt_id}' not found"}
+
+        recording_datetime = self._parse_recording_datetime(bare_name)
+
+        try:
+            result = self._summarization_service.summarize(
+                transcript, prompt_content, recording_datetime=recording_datetime
+            )
+        except Exception as e:
+            return {"ok": False, "error": f"Summarization failed: {str(e)}"}
+
+        summary = result.get("summary", "")
+        title = result.get("title", "")
+        tags = result.get("tags", [])
+        tags_str = ",".join(tags)
+
+        saved = self._sqlite_db_repository.save_summarization_result(
+            bare_name,
+            summary,
+            title,
+            tags_str,
+            prompt_id=prompt_id,
+        )
+        return {
+            "ok": True,
+            "summary_id": saved.id,
+            "version": saved.version,
+            "summary": summary,
+            "title": title,
+            "tags": tags,
+        }
+
+    def get_summaries(self, name: str) -> dict:
+        bare_name = self._bare_name(name)
+        summaries = self._sqlite_db_repository.get_summaries(bare_name)
+        if not summaries:
+            return {"ok": False, "error": "No summary found"}
+
+        return {
+            "ok": True,
+            "summaries": [
+                {
+                    "id": s.id,
+                    "version": s.version,
+                    "title": s.title or "",
+                    "tags": s.tags.split(",") if s.tags else [],
+                    "summary": s.summary,
+                    "prompt_id": s.prompt_id,
+                    "notion_url": s.notion_url,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in summaries
+            ],
+        }
+
+    def get_summary(self, name: str) -> dict:
+        bare_name = self._bare_name(name)
+        db_rec = self._sqlite_db_repository.get_recording_by_name(bare_name)
+        if db_rec and db_rec.summary:
+            tags = db_rec.tags.split(",") if db_rec.tags else []
+            return {"ok": True, "summary": db_rec.summary, "title": db_rec.title or "", "tags": tags}
+
+        result = self.get_summaries(name)
+        if not result.get("ok"):
+            return result
+        latest = (result.get("summaries") or [None])[0]
+        if not latest:
+            return {"ok": False, "error": "No summary found"}
+        return {
+            "ok": True,
+            "summary": latest.get("summary", ""),
+            "title": latest.get("title", ""),
+            "tags": latest.get("tags", []),
+        }
+
+    def update_summary(
+        self, summary_id: int, title: str | None = None, tags: list[str] | None = None, summary: str | None = None
+    ) -> dict:
+        if title is None and tags is None and summary is None:
+            return {"ok": False, "error": "Nothing to update"}
+
+        updated = self._sqlite_db_repository.get_summary_by_id(summary_id)
+        if not updated:
+            return {"ok": False, "error": f"Summary '{summary_id}' not found"}
+
+        if title is not None or tags is not None:
+            next_title = title.strip() if title is not None else (updated.title or "")
+            next_tags = tags if tags is not None else (updated.tags.split(",") if updated.tags else [])
+            tags_list = [t.strip() for t in next_tags if t.strip()]
+            updated = self._sqlite_db_repository.update_summary_metadata(summary_id, next_title, ",".join(tags_list))
+            if not updated:
+                return {"ok": False, "error": f"Summary '{summary_id}' not found"}
+
+        if summary is not None:
+            updated = self._sqlite_db_repository.update_summary_content(summary_id, summary)
+            if not updated:
+                return {"ok": False, "error": f"Summary '{summary_id}' not found"}
+
+        return {
+            "ok": True,
+            "summary_id": updated.id,
+            "title": updated.title or "",
+            "tags": updated.tags.split(",") if updated.tags else [],
+            "summary": updated.summary,
+        }
+
+    def update_summary_metadata(self, summary_id: int, title: str, tags: list[str]) -> dict:
+        return self.update_summary(summary_id=summary_id, title=title, tags=tags)
+
+    def update_recording_metadata(self, name: str, title: str, tags: list[str]) -> dict:
+        bare_name = self._bare_name(name)
+        db_rec = self._sqlite_db_repository.get_recording_by_name(bare_name)
+        if not db_rec:
+            return {"ok": False, "error": f"Recording '{bare_name}' not found"}
+        tags_list = [t.strip() for t in tags if t.strip()]
+        self._sqlite_db_repository.update_title_and_tags(bare_name, title.strip(), ",".join(tags_list))
+        return {"ok": True, "title": title.strip(), "tags": tags_list}
+
+    _DESTINATION_META: dict[str, dict] = {
+        "notion": {"label": "Notion", "icon": "bi-journal-bookmark"},
+    }
+
+    def get_publish_destinations(self) -> dict:
+        destinations = []
+        for key, svc in self._publish_services.items():
+            if hasattr(svc, "is_configured") and svc.is_configured:
+                meta = self._DESTINATION_META.get(key, {})
+                destinations.append(
+                    {
+                        "id": key,
+                        "label": meta.get("label", key.capitalize()),
+                        "icon": meta.get("icon", "bi-share"),
+                    }
+                )
+        return {"ok": True, "destinations": destinations}
+
+    def publish_recording(self, name: str, destination: str) -> dict:
+        bare_name = self._bare_name(name)
+        db_rec = self._sqlite_db_repository.get_recording_by_name(bare_name)
+        if not db_rec:
+            return {"ok": False, "error": "No summary found — summarize the recording first"}
+        summaries = self._sqlite_db_repository.get_summaries(bare_name)
+        if not summaries:
+            return {"ok": False, "error": "No summary found — summarize the recording first"}
+        return self.publish_summary(summaries[0].id, destination)
+
+    def publish_summary(self, summary_id: int, destination: str) -> dict:
+        svc = self._publish_services.get(destination)
+        if not svc:
+            return {"ok": False, "error": f"Unknown publish destination: {destination}"}
+
+        summary = self._sqlite_db_repository.get_summary_by_id(summary_id)
+        if not summary:
+            return {"ok": False, "error": "Summary not found"}
+
+        title = summary.title or summary.recording_name
+        tags = summary.tags.split(",") if summary.tags else []
+
+        publish_title = title
+        recording_dt = self._parse_recording_datetime(summary.recording_name)
+        if recording_dt:
+            date_only = recording_dt.split(" ")[0]
+            publish_title = f"{date_only} {title}"
+
+        try:
+            result = svc.publish_summary(
+                title=publish_title,
+                summary_markdown=summary.summary,
+                tags=tags,
+                recording_name=summary.recording_name,
+            )
+            if result.get("ok") and result.get("url"):
+                self._sqlite_db_repository.save_notion_url(summary_id, result["url"])
+            return result
+        except Exception as e:
+            return {"ok": False, "error": f"Publish failed: {str(e)}"}
+
+    # ─── Tasks ───────────────────────────────────────────────────
+
+    def generate_tasks(self, summary_id: int) -> dict:
+        summary = self._sqlite_db_repository.get_summary_by_id(summary_id)
+        if not summary:
+            return {"ok": False, "error": f"Summary '{summary_id}' not found"}
+
+        if not summary.summary or not summary.summary.strip():
+            return {"ok": False, "error": "Summary is empty — cannot generate tasks"}
+
+        # Delete existing tasks for this summary (regeneration replaces old ones)
+        self._sqlite_db_repository.delete_tasks_by_summary(summary_id)
+
+        try:
+            raw_tasks = self._task_generation_service.generate_tasks(
+                summary_text=summary.summary,
+                summary_title=summary.title,
+            )
+        except Exception as e:
+            return {"ok": False, "error": f"Task generation failed: {str(e)}"}
+
+        if not raw_tasks:
+            return {"ok": False, "error": "AI returned no tasks"}
+
+        # Convert raw dicts to DBTask objects
+        db_tasks = []
+        for t in raw_tasks:
+            subtasks = [
+                DBTask(id=None, summary_id=summary_id, title=s["title"], description=s.get("description", ""))
+                for s in t.get("subtasks", [])
+            ]
+            db_task = DBTask(
+                id=None,
+                summary_id=summary_id,
+                title=t["title"],
+                description=t.get("description", ""),
+                subtasks=subtasks,
+            )
+            db_tasks.append(db_task)
+
+        saved = self._sqlite_db_repository.insert_tasks(db_tasks)
+        return {
+            "ok": True,
+            "summary_id": summary_id,
+            "tasks": [task.to_dict() for task in saved],
+        }
+
+    def get_tasks(self, summary_id: int) -> dict:
+        tasks = self._sqlite_db_repository.get_tasks_by_summary(summary_id)
+        return {
+            "ok": True,
+            "summary_id": summary_id,
+            "tasks": [task.to_dict() for task in tasks],
+        }
+
+    def update_task(
+        self, task_id: int, title: str | None = None, description: str | None = None, status: str | None = None
+    ) -> dict:
+        updated = self._sqlite_db_repository.update_task(task_id, title=title, description=description, status=status)
+        if not updated:
+            return {"ok": False, "error": f"Task '{task_id}' not found"}
+        return {"ok": True, "task": updated.to_dict()}
+
+    def delete_task(self, task_id: int) -> dict:
+        deleted = self._sqlite_db_repository.delete_task(task_id)
+        if not deleted:
+            return {"ok": False, "error": f"Task '{task_id}' not found"}
+        return {"ok": True, "deleted": task_id}

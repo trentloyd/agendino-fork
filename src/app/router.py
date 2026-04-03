@@ -1,0 +1,11 @@
+from fastapi import APIRouter
+
+from app.api.api import router as api_router
+from app.web.dashboard import router as web_router
+from app.web.knowledge import router as knowledge_router
+
+router = APIRouter()
+
+router.include_router(api_router, prefix="/api")
+router.include_router(web_router, prefix="")
+router.include_router(knowledge_router, prefix="")

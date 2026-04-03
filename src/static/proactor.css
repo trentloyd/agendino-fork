@@ -1,0 +1,156 @@
+/* ── Proactor CSS ─────────────────────────────────────────────── */
+
+.proactor-health-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 110px;
+    padding: .5rem 1rem;
+    border-radius: .75rem;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: .02em;
+}
+
+.proactor-health-good {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success);
+    border: 1px solid var(--bs-success-border-subtle);
+}
+
+.proactor-health-fair {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning);
+    border: 1px solid var(--bs-warning-border-subtle);
+}
+
+.proactor-health-poor {
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger);
+    border: 1px solid var(--bs-danger-border-subtle);
+}
+
+#dayload-body tr.table-danger {
+    font-weight: 600;
+}
+
+.proactor-cal-badge {
+    font-size: .7em;
+    font-weight: 500;
+    vertical-align: middle;
+    opacity: .85;
+    margin-left: .25rem;
+}
+
+.proactor-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: .5rem;
+    color: var(--bs-secondary);
+    cursor: help;
+    font-size: .85em;
+    vertical-align: middle;
+    position: relative;
+}
+
+.proactor-help-icon:hover {
+    color: var(--bs-primary);
+}
+
+/* Native tooltip styling hint — works via title attr */
+.proactor-help-icon[title] {
+    text-decoration: none;
+}
+
+/* ── Legend swatches ──────────────────────────────────────────── */
+.proactor-legend-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.proactor-legend-meeting  { background: #495057; }
+.proactor-legend-available { background: var(--bs-success); opacity: .45; }
+.proactor-legend-open     { background: var(--bs-info); opacity: .4; }
+.proactor-legend-tight    { background: var(--bs-warning); opacity: .35; }
+
+/* ── Day timeline rows ───────────────────────────────────────── */
+.tl-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: .65rem 0;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+}
+.tl-row:last-child { border-bottom: none; }
+
+.tl-label {
+    flex: 0 0 130px;
+    min-width: 110px;
+    line-height: 1.3;
+}
+
+.tl-bar-wrap {
+    flex: 1;
+    min-width: 0;
+}
+
+.tl-bar {
+    display: flex;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color-translucent);
+}
+
+.tl-seg {
+    height: 100%;
+    min-width: 2px;
+    transition: opacity .15s;
+    cursor: default;
+}
+.tl-seg:hover {
+    opacity: .8 !important;
+    outline: 2px solid var(--bs-primary);
+    outline-offset: -2px;
+    z-index: 1;
+    position: relative;
+}
+
+/* Meeting segment */
+.tl-meeting {
+    opacity: .85;
+}
+
+/* Free segment variants */
+.tl-avail {
+    background: var(--bs-success);
+    opacity: .35;
+}
+.tl-open {
+    background: var(--bs-info);
+    opacity: .3;
+}
+.tl-tight {
+    background: var(--bs-warning);
+    opacity: .25;
+}
+
+/* Tick marks */
+.tl-ticks {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 2px;
+}
+.tl-tick {
+    font-size: .7em;
+    color: var(--bs-secondary);
+}
+.tl-tick-end {
+    text-align: right;
+}
+

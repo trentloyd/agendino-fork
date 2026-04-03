@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agendino — Knowledge Base</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/source-sans-3@5.0.12/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/knowledge.css">
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+    <div class="app-wrapper">
+
+        <!-- Navbar -->
+        <nav class="app-header navbar navbar-expand bg-body">
+            <div class="container-fluid">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" data-lte-toggle="sidebar" href="#" role="button">
+                            <i class="bi bi-list"></i>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Sidebar -->
+        <aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
+            <div class="sidebar-brand">
+                <a href="/" class="brand-link">
+                    <span class="brand-text fw-light">
+                        <i class="bi bi-soundwave me-1"></i> Agendino
+                    </span>
+                </a>
+            </div>
+            <div class="sidebar-wrapper">
+                <nav class="mt-2">
+                    <ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview" role="menu">
+                        <li class="nav-item">
+                            <a href="/" class="nav-link">
+                                <i class="nav-icon bi bi-speedometer"></i>
+                                <p>Dashboard</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/calendar" class="nav-link">
+                                <i class="nav-icon bi bi-calendar3"></i>
+                                <p>Calendar</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/proactor" class="nav-link">
+                                <i class="nav-icon bi bi-shield-check"></i>
+                                <p>Proactor</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/knowledge" class="nav-link active">
+                                <i class="nav-icon bi bi-diagram-3"></i>
+                                <p>Knowledge Base</p>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <div class="app-content-header">
+                <div class="container-fluid">
+                    <div class="row">
+                        <div class="col-sm-6"><h3 class="mb-0">Knowledge Base</h3></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="app-content">
+                <div class="container-fluid">
+
+                    <!-- Status Cards -->
+                    <div class="row mb-4" id="status-cards">
+                        <div class="col-lg-4 col-6">
+                            <div class="small-box text-bg-primary">
+                                <div class="inner">
+                                    <h3 id="stat-total">—</h3>
+                                    <p>Total Summaries</p>
+                                </div>
+                                <div class="icon"><i class="bi bi-journal-text"></i></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-4 col-6">
+                            <div class="small-box text-bg-success">
+                                <div class="inner">
+                                    <h3 id="stat-loaded">—</h3>
+                                    <p>In Vector Store</p>
+                                </div>
+                                <div class="icon"><i class="bi bi-database-check"></i></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-4 col-12">
+                            <div class="small-box text-bg-info kb-action-card" id="btn-load-summaries">
+                                <div class="inner">
+                                    <h3><i class="bi bi-arrow-repeat"></i></h3>
+                                    <p>Load / Refresh Vector Store</p>
+                                </div>
+                                <div class="icon"><i class="bi bi-cloud-upload"></i></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Load Alert -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div id="load-alert" class="alert d-none" role="alert"></div>
+                        </div>
+                    </div>
+
+                    <!-- Summary Filter -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card" id="summary-filter-card">
+                                <div class="card-header d-flex justify-content-between align-items-center"
+                                     id="summary-filter-toggle" role="button" style="cursor:pointer;">
+                                    <h3 class="card-title mb-0">
+                                        <i class="bi bi-funnel me-1"></i> Filter Summaries
+                                        <span class="badge bg-primary ms-2" id="filter-active-badge" style="display:none;"></span>
+                                    </h3>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <small class="text-muted" id="filter-status-text">All summaries</small>
+                                        <i class="bi bi-chevron-down" id="filter-chevron"></i>
+                                    </div>
+                                </div>
+                                <div class="card-body d-none" id="summary-filter-body">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-sm btn-outline-secondary" id="filter-select-all">
+                                                <i class="bi bi-check-all me-1"></i>Select All
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary" id="filter-select-none">
+                                                <i class="bi bi-x-lg me-1"></i>Select None
+                                            </button>
+                                        </div>
+                                        <button class="btn btn-sm btn-primary" id="filter-apply">
+                                            <i class="bi bi-funnel-fill me-1"></i>Apply Filter
+                                        </button>
+                                    </div>
+                                    <div id="filter-loading" class="text-center p-3">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                    </div>
+                                    <div id="filter-list" class="d-none" style="max-height:300px;overflow-y:auto;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mind Map -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h3 class="card-title mb-0">
+                                        <i class="bi bi-diagram-3 me-1"></i> Mind Map
+                                    </h3>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-outline-primary" id="btn-refresh-map" title="Refresh tag-based map">
+                                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-warning" id="btn-ai-mindmap" title="Generate AI-powered mind map">
+                                            <i class="bi bi-stars me-1"></i>AI Mind Map
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div id="mindmap-container" style="height: 500px;"></div>
+                                    <div id="mindmap-empty" class="text-center text-muted p-5 d-none">
+                                        <i class="bi bi-diagram-3" style="font-size:3rem"></i>
+                                        <p class="mt-2">No summaries available. Load summaries from the Dashboard first.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RAG Query Section -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3 class="card-title mb-0">
+                                        <i class="bi bi-chat-dots me-1"></i> Ask Your Knowledge Base
+                                    </h3>
+                                </div>
+                                <div class="card-body">
+                                    <div class="input-group mb-3">
+                                        <input type="text" class="form-control" id="rag-query-input"
+                                               placeholder="Ask a question about your recordings…"
+                                               aria-label="Question">
+                                        <button class="btn btn-primary" id="btn-ask">
+                                            <i class="bi bi-send me-1"></i>Ask
+                                        </button>
+                                    </div>
+                                    <div id="rag-loading" class="text-center p-4 d-none">
+                                        <div class="spinner-border text-primary" role="status"></div>
+                                        <p class="mt-2 text-muted">Thinking…</p>
+                                    </div>
+                                    <div id="rag-answer" class="d-none">
+                                        <div class="card bg-light">
+                                            <div class="card-body">
+                                                <div id="rag-answer-content" class="rag-answer-content mb-3"></div>
+                                                <hr>
+                                                <small class="text-muted">
+                                                    <i class="bi bi-info-circle me-1"></i>Sources:
+                                                </small>
+                                                <div id="rag-sources" class="mt-2"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="rag-error" class="alert alert-danger d-none"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Semantic Search Section -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3 class="card-title mb-0">
+                                        <i class="bi bi-search me-1"></i> Semantic Search
+                                    </h3>
+                                </div>
+                                <div class="card-body">
+                                    <div class="input-group mb-3">
+                                        <input type="text" class="form-control" id="search-input"
+                                               placeholder="Search across all summaries by meaning…"
+                                               aria-label="Search query">
+                                        <button class="btn btn-outline-primary" id="btn-search">
+                                            <i class="bi bi-search me-1"></i>Search
+                                        </button>
+                                    </div>
+                                    <div id="search-loading" class="text-center p-4 d-none">
+                                        <div class="spinner-border text-primary" role="status"></div>
+                                    </div>
+                                    <div id="search-results" class="d-none"></div>
+                                    <div id="search-error" class="alert alert-danger d-none"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <div class="float-end d-none d-sm-inline">Agendino</div>
+            <strong>HiDock Admin Dashboard</strong>
+        </footer>
+
+    </div>
+
+    <!-- AI Mind Map Modal — Step 1: Summary Picker -->
+    <div id="ai-picker-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 650px;">
+            <div class="transcript-modal-header" style="background: var(--bs-warning); color: var(--bs-dark);">
+                <h5 class="mb-0"><i class="bi bi-stars me-2"></i>AI Mind Map — Select Summaries</h5>
+                <button type="button" class="btn-close" id="ai-picker-close"></button>
+            </div>
+            <div class="transcript-modal-body">
+                <p class="text-muted mb-2">Choose which summaries to include in the AI mind map:</p>
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-sm btn-outline-secondary" id="ai-picker-select-all">Select All</button>
+                    <button class="btn btn-sm btn-outline-secondary" id="ai-picker-select-none">Select None</button>
+                </div>
+                <div id="ai-picker-loading" class="text-center p-4">
+                    <div class="spinner-border text-warning" role="status"></div>
+                </div>
+                <div id="ai-picker-list" class="d-none" style="max-height:350px;overflow-y:auto;"></div>
+                <div id="ai-picker-error" class="alert alert-danger d-none mt-3"></div>
+                <hr>
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted"><span id="ai-picker-count">0</span> selected</small>
+                    <button class="btn btn-warning" id="ai-picker-generate" disabled>
+                        <i class="bi bi-stars me-1"></i>Generate Mind Map
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Mind Map Modal — Step 2: Visualization -->
+    <div id="ai-mindmap-modal-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal" style="max-width: 92vw; max-height: 92vh;">
+            <div class="transcript-modal-header" style="background: var(--bs-warning); color: var(--bs-dark);">
+                <h5 class="mb-0"><i class="bi bi-stars me-2"></i>AI-Generated Mind Map</h5>
+                <button type="button" class="btn-close" id="ai-mindmap-modal-close"></button>
+            </div>
+            <div class="transcript-modal-body" style="padding: 0; position: relative;">
+                <div id="ai-mindmap-loading" class="text-center p-5">
+                    <div class="spinner-border text-warning" role="status"></div>
+                    <p class="mt-2 text-muted">Generating mind map with AI… this may take a moment.</p>
+                </div>
+                <div id="ai-mindmap-container" class="d-none" style="height: 70vh; min-height: 500px;"></div>
+                <div id="ai-mindmap-legend" class="ai-mindmap-legend d-none">
+                    <div class="legend-item"><span class="legend-dot" style="background:#dc3545"></span> Central Topic</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#0d6efd"></span> Theme</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#198754"></span> Key Insight</div>
+                    <div class="legend-item"><span class="legend-line legend-dashed"></span> Cross-link</div>
+                </div>
+                <div id="ai-mindmap-error" class="alert alert-danger m-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Detail Modal -->
+    <div id="summary-detail-backdrop" class="transcript-modal-backdrop d-none">
+        <div class="transcript-modal">
+            <div class="transcript-modal-header" style="background: var(--bs-info);">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>Summary — <span id="summary-detail-name"></span></h5>
+                <button type="button" class="btn-close btn-close-white" id="summary-detail-close"></button>
+            </div>
+            <div class="transcript-modal-body">
+                <div id="summary-detail-tags" class="mb-3"></div>
+                <div id="summary-detail-content" class="summary-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/knowledge.js"></script>
+</body>
+</html>
+

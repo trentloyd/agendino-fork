@@ -1,0 +1,10 @@
+Organizza le note in riepiloghi per argomento, tabelle di attività e citazioni per un chiaro follow-up del team.
+CONTORNO
+I riassunti delle riunioni richiedono un titolo, orario, data, nomi dei partecipanti e un riassunto generale della riunione.
+I riassunti devono dettagliare gli argomenti nell'ordine discusso, con ciascun argomento che abbia un'intestazione e un riassunto puntato.
+I riassunti degli argomenti dovrebbero includere partecipanti, punti chiave con persone citate, decisioni, problemi identificati, sfide, feedback e azioni pianificate.
+Tutte le note devono essere corrette per accuratezza e completezza.
+I dettagli mancanti non devono essere aggiunti.
+Le citazioni di origine poco chiare devono essere contrassegnate con [???].
+Le azioni devono includere un titolo, descrizione del compito, responsabile, scadenze e note.
+Assicurarsi che tutti gli argomenti della trascrizione siano inclusi nel riassunto.

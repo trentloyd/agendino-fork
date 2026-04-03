@@ -1,0 +1,6 @@
+*.hda
+.env
+.idea
+*.db
+/htmlcov/
+/settings/vector_store/

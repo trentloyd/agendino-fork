@@ -1,0 +1,11 @@
+fastapi[standard]
+pyusb
+python-dotenv
+jinja2
+google-genai
+json-repair
+httpx
+chromadb
+icalendar
+recurring-ical-events
+mutagen

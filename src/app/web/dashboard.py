@@ -1,0 +1,28 @@
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
+
+from app import depends
+from controllers.CalendarController import CalendarController
+from controllers.DashboardController import DashboardController
+from controllers.ProactorController import ProactorController
+
+router = APIRouter()
+
+
+@router.get("/", response_class=HTMLResponse)
+def home(request: Request, dashboard_controller: DashboardController = Depends(depends.get_dashboard_controller)):
+    return dashboard_controller.home(request)
+
+
+@router.get("/calendar", response_class=HTMLResponse)
+def calendar_home(
+    request: Request, calendar_controller: CalendarController = Depends(depends.get_calendar_controller)
+):
+    return calendar_controller.calendar_home(request)
+
+
+@router.get("/proactor", response_class=HTMLResponse)
+def proactor_home(
+    request: Request, proactor_controller: ProactorController = Depends(depends.get_proactor_controller)
+):
+    return proactor_controller.proactor_home(request)
