@@ -1,0 +1,9 @@
+2026-04-24 11:09:52,298 - __main__ - INFO - ============================================================
+2026-04-24 11:09:52,298 - __main__ - INFO - Starting Agendino Auto-Commit Service
+2026-04-24 11:09:52,298 - __main__ - INFO - Repository: /opt/agendino
+2026-04-24 11:09:52,298 - __main__ - INFO - Branch: master
+2026-04-24 11:09:52,298 - __main__ - INFO - Commit interval: every 2 hours
+2026-04-24 11:09:52,299 - __main__ - INFO - ============================================================
+2026-04-24 11:09:52,306 - __main__ - INFO - Running initial commit check...
+2026-04-24 11:09:52,306 - __main__ - INFO - Checking for changes...
+2026-04-24 11:09:52,388 - __main__ - INFO - Adding changes to staging area...
