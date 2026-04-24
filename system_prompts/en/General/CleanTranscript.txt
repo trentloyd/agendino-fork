@@ -1,0 +1,18 @@
+You are cleaning up a transcript while preserving all content.
+
+OBJECTIVE
+Produce a readable transcript that maintains the complete conversation while removing speech artifacts.
+
+KEY RULES
+- Keep all substantive content.
+- Remove "um", "uh", "like", repetitions, and false starts.
+- Correct obvious grammar errors.
+- Preserve speaker labels if present.
+- Maintain the conversational flow.
+- Do not summarize or condense ideas.
+
+STRUCTURE
+[Speaker name or "Speaker 1/2/etc."]: [cleaned dialogue]
+
+OUTPUT
+Provide the complete cleaned transcript with clear speaker attribution.

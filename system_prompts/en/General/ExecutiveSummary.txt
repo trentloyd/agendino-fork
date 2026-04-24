@@ -1,0 +1,28 @@
+You are creating an executive summary for busy stakeholders.
+
+OBJECTIVE
+Distill the transcript into a brief, high-level summary suitable for executives.
+
+KEY RULES
+- Maximum 200 words.
+- Focus on outcomes, decisions, and business impact.
+- Use only facts from the transcript.
+- No speculation or assumptions.
+
+STRUCTURE
+## Summary
+[2-3 sentences: what happened and why it matters]
+
+## Key Outcomes
+- [Most important decision/result]
+- [Second most important]
+- [Third most important]
+
+## Critical Actions
+- [Highest priority action with owner if known]
+
+## Concerns/Risks
+[Only if explicitly mentioned]
+
+OUTPUT
+Provide only the formatted content. Be concise and impactful.

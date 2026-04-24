@@ -35,6 +35,7 @@ class VectorStoreRepository:
     def add_summary(self, summary_id: int, text: str, metadata: dict) -> None:
         doc_id = f"summary_{summary_id}"
         embeddings = self._embed([text])
+        metadata["document_type"] = "summary"  # Mark as summary for filtering
         self._collection.upsert(
             ids=[doc_id],
             embeddings=embeddings,
@@ -42,15 +43,54 @@ class VectorStoreRepository:
             metadatas=[metadata],
         )
 
-    def search(self, query: str, top_k: int = 5, summary_ids: list[int] | None = None) -> list[dict]:
+    def add_transcript(self, recording_id: int, text: str, metadata: dict) -> None:
+        """Add a transcript to the vector store with a different ID pattern."""
+        doc_id = f"transcript_{recording_id}"
+        embeddings = self._embed([text])
+        metadata["document_type"] = "transcript"  # Mark as transcript for filtering
+        self._collection.upsert(
+            ids=[doc_id],
+            embeddings=embeddings,
+            documents=[text],
+            metadatas=[metadata],
+        )
+
+    def search(self, query: str, top_k: int = 5, summary_ids: list[int] | None = None, search_mode: str = "quick", summary_to_recording_map: dict[int, int] | None = None) -> list[dict]:
+        """Search summaries and optionally transcripts based on search mode.
+
+        Args:
+            query: Search query text
+            top_k: Maximum number of results to return
+            summary_ids: Optional filter by specific summary IDs
+            search_mode: "quick" (summaries only) or "deep" (summaries + transcripts)
+        """
         count = self._collection.count()
         if count == 0:
             return []
         query_embedding = self._embed([query])
 
         where_filter = None
-        if summary_ids:
-            where_filter = {"summary_id": {"$in": summary_ids}}
+        if search_mode == "quick":
+            # Only search summaries
+            where_filter = {"document_type": "summary"}
+            if summary_ids:
+                where_filter = {"$and": [
+                    {"document_type": "summary"},
+                    {"summary_id": {"$in": summary_ids}}
+                ]}
+        elif search_mode == "deep":
+            # Search both summaries and transcripts
+            if summary_ids and summary_to_recording_map:
+                # Map summary_ids to recording_ids for transcript filtering
+                recording_ids = [summary_to_recording_map.get(sid) for sid in summary_ids if summary_to_recording_map.get(sid)]
+                where_filter = {"$or": [
+                    {"$and": [{"document_type": "summary"}, {"summary_id": {"$in": summary_ids}}]},
+                    {"$and": [{"document_type": "transcript"}, {"recording_id": {"$in": recording_ids}}]}
+                ]}
+            elif summary_ids:
+                # If no mapping provided, just search summaries with the given IDs
+                where_filter = {"$and": [{"document_type": "summary"}, {"summary_id": {"$in": summary_ids}}]}
+            # If no summary_ids filter, search everything (summaries + transcripts)
 
         results = self._collection.query(
             query_embeddings=query_embedding,
@@ -77,6 +117,15 @@ class VectorStoreRepository:
         except Exception:
             return False
 
+    def is_transcript_loaded(self, recording_id: int) -> bool:
+        """Check if a transcript is already loaded in the vector store."""
+        doc_id = f"transcript_{recording_id}"
+        try:
+            result = self._collection.get(ids=[doc_id])
+            return len(result["ids"]) > 0
+        except Exception:
+            return False
+
     def get_all(self):
         return self._collection.get(include=["documents", "metadatas", "embeddings"])
 
@@ -85,6 +134,14 @@ class VectorStoreRepository:
 
     def delete_summary(self, summary_id: int) -> None:
         doc_id = f"summary_{summary_id}"
+        try:
+            self._collection.delete(ids=[doc_id])
+        except Exception:
+            pass
+
+    def delete_transcript(self, recording_id: int) -> None:
+        """Delete a transcript from the vector store."""
+        doc_id = f"transcript_{recording_id}"
         try:
             self._collection.delete(ids=[doc_id])
         except Exception:

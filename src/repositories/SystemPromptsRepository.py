@@ -13,6 +13,9 @@ class SystemPromptsRepository:
         for lang_dir in sorted(self._prompts_dir.iterdir()):
             if not lang_dir.is_dir():
                 continue
+            # Only include English prompts
+            if lang_dir.name != "en":
+                continue
             for category_dir in sorted(lang_dir.iterdir()):
                 if not category_dir.is_dir():
                     continue

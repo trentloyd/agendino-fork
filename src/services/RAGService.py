@@ -1,12 +1,14 @@
 import json
 import logging
 import os
+import re
 
+from anthropic import Anthropic
 from json_repair import repair_json
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash"
+MODEL = "claude-sonnet-4-20250514"
 
 MIND_MAP_PROMPT = """You are a knowledge-mapping expert. Analyze the summaries and produce a
 clean, hierarchical mind map.
@@ -41,7 +43,7 @@ Return ONLY this JSON:
 RAG_PROMPT = """You are a helpful assistant that answers questions based on the provided context.
 Use ONLY the information from the context below to answer the question.
 If the answer cannot be found in the context, say so clearly.
-Use the same language as the question.
+**Always respond in English, even if the context is in another language.**
 Format your response in Markdown.
 
 Context:
@@ -54,17 +56,13 @@ Answer:"""
 
 class RAGService:
     def __init__(self, api_key: str | None = None):
-        key = api_key or os.environ.get("GEMINI_API_KEY")
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not key:
-            raise ValueError("GEMINI_API_KEY environment variable is not set")
-        from google import genai
-
-        self._client = genai.Client(api_key=key)
+            raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+        self._client = Anthropic(api_key=key)
 
     def ask(self, question: str, context_docs: list[dict]) -> dict:
         """RAG query: answer a question using retrieved context."""
-        from google.genai import types
-
         context_parts = []
         sources = []
         for i, doc in enumerate(context_docs):
@@ -84,23 +82,22 @@ class RAGService:
         context = "\n\n---\n\n".join(context_parts)
         prompt = RAG_PROMPT.format(context=context, question=question)
 
-        response = self._client.models.generate_content(
+        response = self._client.messages.create(
             model=MODEL,
-            config=types.GenerateContentConfig(
-                max_output_tokens=4096,
-            ),
-            contents=prompt,
+            max_tokens=4096,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
         )
 
         return {
-            "answer": response.text or "",
+            "answer": response.content[0].text or "",
             "sources": sources,
         }
 
     def generate_mind_map(self, summaries: list[dict]) -> dict:
-        """Generate a mind map structure from summaries using Gemini."""
-        from google.genai import types
-
+        """Generate a mind map structure from summaries using Claude."""
         summary_texts = []
         for s in summaries:
             tags = ", ".join(s.get("tags", []))
@@ -111,18 +108,24 @@ class RAGService:
 
         content = "Summaries:\n\n" + "\n\n---\n\n".join(summary_texts)
 
-        logger.info("Generating mind map with Gemini for %d summaries…", len(summaries))
-        response = self._client.models.generate_content(
+        logger.info("Generating mind map with Claude for %d summaries…", len(summaries))
+        response = self._client.messages.create(
             model=MODEL,
-            config=types.GenerateContentConfig(
-                system_instruction=MIND_MAP_PROMPT,
-                response_mime_type="application/json",
-                max_output_tokens=8192,
-            ),
-            contents=content,
+            max_tokens=8192,
+            system=MIND_MAP_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": content
+            }]
         )
 
-        raw = response.text or ""
+        raw = response.content[0].text or ""
+
+        # Strip markdown code blocks if present
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(1)
+
         try:
             data = json.loads(raw)
             if isinstance(data, dict):

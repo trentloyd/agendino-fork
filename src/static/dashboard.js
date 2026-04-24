@@ -760,7 +760,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Start transcription helper
     async function startTranscription(name, engine, triggerBtn) {
-        const engineLabel = engine === "whisper" ? "Whisper (local)" : "Gemini AI";
+        const engineLabel = engine === "whisper" ? "Whisper (local)" : "AI";
 
         if (triggerBtn) {
             triggerBtn.disabled = true;
@@ -1199,7 +1199,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         closePromptPicker();
         openSummaryModal(currentSummarizeName);
-        summaryLoading.querySelector("p").textContent = "Generating summary with Gemini AI… this may take a moment.";
+        summaryLoading.querySelector("p").textContent = "Generating summary… this may take a moment.";
 
         try {
             const res = await fetch(`${SUMMARIZE_URL}/${encodeURIComponent(currentSummarizeName)}`, {

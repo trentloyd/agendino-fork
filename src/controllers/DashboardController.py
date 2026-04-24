@@ -15,6 +15,8 @@ from services.SummarizationService import SummarizationService
 from services.TaskGenerationService import TaskGenerationService
 from services.TranscriptionService import TranscriptionService
 from services.WhisperTranscriptionService import WhisperTranscriptionService
+from services.ObsidianService import ObsidianService
+from models.DBActionItem import DBActionItem
 
 MIME_TYPES = {
     "hda": "audio/mpeg",
@@ -398,6 +400,13 @@ class DashboardController:
             tags_str,
             prompt_id=prompt_id,
         )
+
+        # Auto-extract action items from DefaultSummary
+        if prompt_id == "en/General/DefaultSummary":
+            recording = self._sqlite_db_repository.get_recording_by_name(bare_name)
+            if recording:
+                self._extract_action_items_from_summary(summary, saved, recording)
+
         return {
             "ok": True,
             "summary_id": saved.id,
@@ -539,12 +548,25 @@ class DashboardController:
             date_only = recording_dt.split(" ")[0]
             publish_title = f"{date_only} {title}"
 
+        # *** KEY CHANGE: Get tasks for this summary ***
+        tasks = self._sqlite_db_repository.get_tasks_by_summary(summary_id)
+        tasks_list = []
+        if tasks:
+            for t in tasks:
+                tasks_list.append({
+                    "description": t.title,
+                    "owner": "Unassigned",  # DBTask doesn't have owner/due_date fields
+                    "due_date": "",
+                    "priority": ""
+                })
+
         try:
             result = svc.publish_summary(
                 title=publish_title,
                 summary_markdown=summary.summary,
                 tags=tags,
                 recording_name=summary.recording_name,
+                tasks=tasks_list,  # *** Pass tasks to Obsidian ***
             )
             if result.get("ok") and result.get("url"):
                 self._sqlite_db_repository.save_notion_url(summary_id, result["url"])
@@ -593,11 +615,160 @@ class DashboardController:
             db_tasks.append(db_task)
 
         saved = self._sqlite_db_repository.insert_tasks(db_tasks)
+
+        # Auto-create action items from tasks
+        recording = self._sqlite_db_repository.get_recording_by_id(summary.recording_id)
+        for task in saved:
+            self._create_action_item_from_task(task, summary, recording)
+
         return {
             "ok": True,
             "summary_id": summary_id,
             "tasks": [task.to_dict() for task in saved],
         }
+
+    def _create_action_item_from_task(self, task, summary, recording):
+        """Create an action item from a task."""
+        try:
+            action_item = DBActionItem(
+                id=None,
+                task_id=task.id,
+                recording_id=summary.recording_id,
+                summary_id=task.summary_id,
+                title=task.title,
+                description=task.description,
+                due_date=None,
+                priority="medium",
+                status="pending",
+                archived=False,
+                assigned_to=None,
+                meeting_title=summary.title or recording.title if recording else None,
+                meeting_date=recording.created_at if recording else None,
+                created_at=datetime.now(),
+            )
+            self._sqlite_db_repository.create_action_item(action_item)
+
+            # Also create action items for subtasks
+            for subtask in task.subtasks:
+                subtask_action_item = DBActionItem(
+                    id=None,
+                    task_id=subtask.id,
+                    recording_id=summary.recording_id,
+                    summary_id=subtask.summary_id,
+                    title=subtask.title,
+                    description=subtask.description,
+                    due_date=None,
+                    priority="low",
+                    status="pending",
+                    archived=False,
+                    assigned_to=None,
+                    meeting_title=summary.title or recording.title if recording else None,
+                    meeting_date=recording.created_at if recording else None,
+                    created_at=datetime.now(),
+                )
+                self._sqlite_db_repository.create_action_item(subtask_action_item)
+
+        except Exception as e:
+            # Log the error but don't fail the entire task generation
+            print(f"Warning: Failed to create action item for task '{task.title}': {e}")
+
+    def _extract_action_items_from_summary(self, summary_text: str, summary_record, recording):
+        """Extract action items from DefaultSummary output and create action item records."""
+        try:
+            import re
+
+            # Look for the Action Items section in the summary
+            action_items_match = re.search(r'### Action Items\s*.*?\n(.*?)(?=###|\Z)', summary_text, re.DOTALL | re.IGNORECASE)
+
+            if not action_items_match:
+                print("No Action Items section found in DefaultSummary")
+                return
+
+            action_items_text = action_items_match.group(1).strip()
+
+            # Parse the table format - look for lines that contain action item data
+            # Expected format: | Action Item | Owner | Due Date | Priority | Dependencies | Status | Source |
+            lines = action_items_text.split('\n')
+
+            for line in lines:
+                # Skip empty lines, header lines, and separator lines
+                line = line.strip()
+                if not line or line.startswith('|--') or 'Action Item' in line:
+                    continue
+
+                # Parse table row format
+                if line.startswith('|') and line.endswith('|'):
+                    columns = [col.strip() for col in line.split('|')[1:-1]]  # Remove empty first/last elements
+
+                    if len(columns) >= 6:  # Ensure we have enough columns
+                        action_item_title = columns[0].strip()
+                        owner = columns[1].strip() if columns[1].strip() and columns[1].strip() != '-' else None
+                        due_date_str = columns[2].strip() if columns[2].strip() and columns[2].strip() != '-' else None
+                        priority = columns[3].strip() if columns[3].strip() and columns[3].strip() != '-' else 'medium'
+                        dependencies = columns[4].strip() if len(columns) > 4 and columns[4].strip() and columns[4].strip() != '-' else None
+                        status = columns[5].strip() if len(columns) > 5 and columns[5].strip() and columns[5].strip() != '-' else 'pending'
+                        source = columns[6].strip() if len(columns) > 6 and columns[6].strip() and columns[6].strip() != '-' else None
+
+                        # Skip empty or invalid action items
+                        if not action_item_title or action_item_title == '-':
+                            continue
+
+                        # Parse due date
+                        due_date = None
+                        if due_date_str and due_date_str.lower() not in ['owner missing', 'date missing', '-', '']:
+                            try:
+                                # Try to parse various date formats
+                                for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%m-%d-%Y', '%d/%m/%Y']:
+                                    try:
+                                        due_date = datetime.strptime(due_date_str, fmt)
+                                        break
+                                    except ValueError:
+                                        continue
+                            except:
+                                pass
+
+                        # Normalize priority
+                        if priority.lower() in ['high', 'h']:
+                            priority = 'high'
+                        elif priority.lower() in ['low', 'l']:
+                            priority = 'low'
+                        else:
+                            priority = 'medium'
+
+                        # Normalize status
+                        if status.lower() in ['in progress', 'in-progress', 'in_progress']:
+                            status = 'in_progress'
+                        elif status.lower() in ['completed', 'done', 'complete']:
+                            status = 'completed'
+                        elif status.lower() in ['blocked']:
+                            status = 'blocked'
+                        else:
+                            status = 'pending'
+
+                        # Create the action item
+                        action_item = DBActionItem(
+                            id=None,
+                            task_id=None,  # No task_id since this comes from summary directly
+                            recording_id=recording.id,
+                            summary_id=summary_record.id,
+                            title=action_item_title,
+                            description=f"{dependencies}\n\nSource: {source}" if dependencies or source else None,
+                            due_date=due_date,
+                            priority=priority,
+                            status=status,
+                            archived=False,
+                            assigned_to=owner,
+                            meeting_title=summary_record.title or recording.title,
+                            meeting_date=recording.created_at,
+                            created_at=datetime.now(),
+                        )
+
+                        # Save the action item
+                        created_item = self._sqlite_db_repository.create_action_item(action_item)
+                        print(f"Created action item from summary: {created_item.title}")
+
+        except Exception as e:
+            print(f"Warning: Failed to extract action items from DefaultSummary: {e}")
 
     def get_tasks(self, summary_id: int) -> dict:
         tasks = self._sqlite_db_repository.get_tasks_by_summary(summary_id)

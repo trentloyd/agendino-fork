@@ -6,11 +6,13 @@ from controllers.CalendarController import CalendarController
 from controllers.DashboardController import DashboardController
 from controllers.ProactorController import ProactorController
 from controllers.RAGController import RAGController
+from controllers.ActionItemController import ActionItemController
 from repositories.LocalRecordingsRepository import LocalRecordingsRepository
 from repositories.SqliteDBRepository import SqliteDBRepository
 from repositories.SystemPromptsRepository import SystemPromptsRepository
 from repositories.VectorStoreRepository import VectorStoreRepository
 from services.NotionService import NotionService
+from services.ObsidianService import ObsidianService
 from services.RAGService import RAGService
 from services.SummarizationService import SummarizationService
 from services.TaskGenerationService import TaskGenerationService
@@ -19,6 +21,8 @@ from services.WhisperTranscriptionService import WhisperTranscriptionService
 from services.DailyRecapService import DailyRecapService
 from services.ICalSyncService import ICalSyncService
 from services.ProactorService import ProactorService
+from services.ClaudeSummarizationService import ClaudeSummarizationService
+from services.ClaudeTaskGenerationService import ClaudeTaskGenerationService
 
 load_dotenv()
 
@@ -62,12 +66,12 @@ def get_whisper_transcription_service() -> WhisperTranscriptionService:
     )
 
 
-def get_summarization_service() -> SummarizationService:
-    return SummarizationService(api_key=os.getenv("GEMINI_API_KEY"))
+def get_summarization_service() -> ClaudeSummarizationService:
+    return ClaudeSummarizationService(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
-def get_task_generation_service() -> TaskGenerationService:
-    return TaskGenerationService(api_key=os.getenv("GEMINI_API_KEY"))
+def get_task_generation_service() -> ClaudeTaskGenerationService:
+    return ClaudeTaskGenerationService(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
 def get_system_prompts_repository() -> SystemPromptsRepository:
@@ -80,6 +84,11 @@ def get_notion_service() -> NotionService:
         parent_page_id=os.getenv("NOTION_PAGE_ID", ""),
     )
 
+def get_obsidian_service() -> ObsidianService:
+    return ObsidianService(
+        vault_path=os.getenv("OBSIDIAN_VAULT_PATH", ""),
+        auto_commit_script=os.getenv("OBSIDIAN_AUTO_COMMIT_SCRIPT", ""),
+    )
 
 def _build_publish_services() -> dict:
     """Build a dict of configured publish services (only includes services with valid config)."""
@@ -87,6 +96,10 @@ def _build_publish_services() -> dict:
     notion = get_notion_service()
     if notion.is_configured:
         services["notion"] = notion
+
+    obsidian = get_obsidian_service()
+    if obsidian.vault_path and os.path.exists(obsidian.vault_path):
+        services["obsidian"] = obsidian
     return services
 
 
@@ -140,7 +153,7 @@ def get_vector_store_repository() -> VectorStoreRepository:
 
 
 def get_rag_service() -> RAGService:
-    return RAGService(api_key=os.getenv("GEMINI_API_KEY"))
+    return RAGService(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
 def get_rag_controller() -> RAGController:
@@ -149,4 +162,11 @@ def get_rag_controller() -> RAGController:
         vector_store_repository=get_vector_store_repository(),
         rag_service=get_rag_service(),
         template_path=os.path.join(get_root_path(), "src/templates/knowledge"),
+    )
+
+
+def get_action_item_controller() -> ActionItemController:
+    return ActionItemController(
+        db_repo=get_sqlite_db_repository(),
+        template_path=os.path.join(get_root_path(), "src/templates/dashboard"),
     )

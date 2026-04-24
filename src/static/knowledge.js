@@ -585,7 +585,8 @@
 
         try {
             const ids = getActiveFilterIds();
-            const payload = { query, top_k: 5 };
+            const searchMode = getSearchMode();
+            const payload = { query, top_k: 5, search_mode: searchMode };
             if (ids) payload.summary_ids = ids;
 
             const data = await api('/ask', {
@@ -603,10 +604,13 @@
                     for (const src of data.sources) {
                         const badge = document.createElement('span');
                         badge.className = 'badge bg-secondary me-2 mb-1 source-badge';
-                        badge.textContent = src.title || src.recording_name;
+                        const isTranscript = src.document_type === 'transcript';
+                        const prefix = isTranscript ? '📝 ' : '';
+                        badge.textContent = `${prefix}${src.title || src.recording_name}`;
                         if (src.distance !== null && src.distance !== undefined) {
                             const similarity = (1 - src.distance).toFixed(3);
-                            badge.title = `Similarity: ${similarity}`;
+                            const sourceType = isTranscript ? 'transcript' : 'summary';
+                            badge.title = `${sourceType} - Similarity: ${similarity}`;
                         }
                         sourcesEl.appendChild(badge);
                     }
@@ -623,6 +627,60 @@
         }
     }
 
+    /* ── Search Mode Helpers ── */
+    function getSearchMode() {
+        const modeToggle = $('search-mode-toggle');
+        return modeToggle && modeToggle.checked ? 'deep' : 'quick';
+    }
+
+    function updateSearchModeUI() {
+        const modeToggle = $('search-mode-toggle');
+        const modeLabel = $('search-mode-label');
+        const modeDescription = $('search-mode-description');
+
+        if (modeToggle && modeLabel && modeDescription) {
+            if (modeToggle.checked) {
+                modeLabel.textContent = 'Deep Search';
+                modeDescription.textContent = 'Search summaries + transcripts (slower, detailed)';
+            } else {
+                modeLabel.textContent = 'Quick Search';
+                modeDescription.textContent = 'Search summaries only (fast, high-level)';
+            }
+        }
+    }
+
+    /* ── Transcript Loading ── */
+    async function loadTranscripts() {
+        const alertEl = $('load-transcripts-alert');
+        const btn = $('btn-load-transcripts');
+        hide(alertEl);
+        btn.classList.add('loading');
+
+        try {
+            const data = await api('/load-transcripts', { method: 'POST' });
+            if (data.ok) {
+                alertEl.className = 'alert alert-success';
+                alertEl.innerHTML =
+                    `<i class="bi bi-check-circle me-1"></i> Loaded <strong>${data.loaded}</strong> transcripts ` +
+                    `(${data.skipped} skipped). Total in store: <strong>${data.total_in_store}</strong>`;
+                if (data.errors && data.errors.length > 0) {
+                    alertEl.innerHTML += `<br><small class="text-muted">Errors: ${data.errors.join(', ')}</small>`;
+                }
+            } else {
+                alertEl.className = 'alert alert-danger';
+                alertEl.textContent = data.error || 'Failed to load transcripts';
+            }
+            show(alertEl);
+            await loadStats();
+        } catch (e) {
+            alertEl.className = 'alert alert-danger';
+            alertEl.textContent = `Error: ${e.message}`;
+            show(alertEl);
+        } finally {
+            btn.classList.remove('loading');
+        }
+    }
+
     /* ── Semantic Search ── */
     async function searchSummaries() {
         const query = $('search-input').value.trim();
@@ -634,7 +692,8 @@
 
         try {
             const ids = getActiveFilterIds();
-            const payload = { query, top_k: 10 };
+            const searchMode = getSearchMode();
+            const payload = { query, top_k: 10, search_mode: searchMode };
             if (ids) payload.summary_ids = ids;
 
             const data = await api('/search', {
@@ -654,6 +713,10 @@
                             ? (1 - r.distance).toFixed(3)
                             : '—';
 
+                        const isTranscript = meta.document_type === 'transcript';
+                        const sourceType = isTranscript ? 'Transcript' : 'Summary';
+                        const sourceIcon = isTranscript ? '📝' : '📄';
+
                         const tagsHtml = meta.tags
                             ? meta.tags.split(',')
                                 .filter(t => t.trim())
@@ -669,8 +732,9 @@
                             <div class="card-body py-2 px-3">
                                 <div class="d-flex justify-content-between align-items-start">
                                     <div>
-                                        <strong>${meta.title || meta.recording_name || 'Untitled'}</strong>
+                                        <strong>${sourceIcon} ${meta.title || meta.recording_name || 'Untitled'}</strong>
                                         <small class="text-muted ms-2">${meta.recording_name || ''}</small>
+                                        <span class="badge bg-info ms-2">${sourceType}</span>
                                     </div>
                                     <span class="badge bg-primary">Score: ${similarity}</span>
                                 </div>
@@ -700,13 +764,21 @@
         // Initial load
         loadStats();
         loadMindMap();
+        updateSearchModeUI();
 
         // Action buttons
         $('btn-load-summaries').addEventListener('click', loadSummaries);
+        $('btn-load-transcripts').addEventListener('click', loadTranscripts);
         $('btn-refresh-map').addEventListener('click', loadMindMap);
         $('btn-ai-mindmap').addEventListener('click', openAIPicker);
         $('btn-ask').addEventListener('click', askQuestion);
         $('btn-search').addEventListener('click', searchSummaries);
+
+        // Search mode toggle
+        const searchModeToggle = $('search-mode-toggle');
+        if (searchModeToggle) {
+            searchModeToggle.addEventListener('change', updateSearchModeUI);
+        }
 
         // Enter key support
         $('rag-query-input').addEventListener('keydown', e => {

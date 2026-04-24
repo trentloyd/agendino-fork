@@ -99,6 +99,7 @@ class RAGController:
                     "title": summary.title or "",
                     "tags": summary.tags or "",
                     "version": summary.version,
+                    "recording_id": summary.recording_id,  # Add recording_id for linking
                 }
 
                 self._vector_store.add_summary(summary.id, doc_text, metadata)
@@ -115,23 +116,106 @@ class RAGController:
             "total_in_store": self._vector_store.count(),
         }
 
-    def search(self, query: str, top_k: int = 5, summary_ids: list[int] | None = None) -> dict:
+    def load_transcripts(self) -> dict:
+        """Load all transcripts into the vector store for deep search functionality."""
+        recordings = self._sqlite_db_repository.get_recordings()
+        loaded = 0
+        skipped = 0
+        errors = []
+
+        for recording in recordings:
+            if not recording.transcript or not recording.transcript.strip():
+                skipped += 1
+                continue
+
+            # Check if already loaded to avoid duplicates
+            if self._vector_store.is_transcript_loaded(recording.id):
+                skipped += 1
+                continue
+
+            try:
+                # Build metadata for transcript
+                metadata = {
+                    "recording_id": recording.id,
+                    "recording_name": recording.name,
+                    "title": recording.title or recording.label or "",
+                    "tags": recording.tags or "",
+                    "document_type": "transcript",
+                }
+
+                # Chunk transcript if it's very long (for better retrieval)
+                transcript_text = recording.transcript
+                if len(transcript_text) > 5000:
+                    # For very long transcripts, we could chunk them, but for now just truncate
+                    # to keep the most relevant parts
+                    chunks = [transcript_text[i:i+4000] for i in range(0, len(transcript_text), 3000)]
+                    # Use the first chunk plus some overlap
+                    transcript_text = chunks[0]
+                    if len(chunks) > 1:
+                        transcript_text += "..." + chunks[1][:1000]
+
+                # Prefix with context for better search results
+                doc_text = f"Transcript from: {recording.title or recording.label or recording.name}\n"
+                if recording.tags:
+                    doc_text += f"Tags: {recording.tags}\n"
+                doc_text += f"\n{transcript_text}"
+
+                self._vector_store.add_transcript(recording.id, doc_text, metadata)
+                loaded += 1
+            except Exception as e:
+                logger.warning("Failed to load transcript %s: %s", recording.name, e)
+                errors.append(f"{recording.name}: {str(e)}")
+
+        return {
+            "ok": True,
+            "loaded": loaded,
+            "skipped": skipped,
+            "errors": errors,
+            "total_in_store": self._vector_store.count(),
+        }
+
+    def search(self, query: str, top_k: int = 5, summary_ids: list[int] | None = None, search_mode: str = "quick") -> dict:
         if self._vector_store.count() == 0:
             return {"ok": False, "error": "Vector store is empty. Load summaries first."}
 
-        results = self._vector_store.search(query, top_k, summary_ids=summary_ids)
+        # Build summary to recording ID mapping for deep search filtering
+        summary_to_recording_map = None
+        if search_mode == "deep" and summary_ids:
+            summaries_map = self._sqlite_db_repository.get_latest_summaries_map()
+            summary_to_recording_map = {s.id: s.recording_id for s in summaries_map.values()}
+
+        results = self._vector_store.search(
+            query,
+            top_k,
+            summary_ids=summary_ids,
+            search_mode=search_mode,
+            summary_to_recording_map=summary_to_recording_map
+        )
         return {
             "ok": True,
             "results": results,
             "query": query,
+            "search_mode": search_mode,
         }
 
-    def ask(self, question: str, top_k: int = 5, summary_ids: list[int] | None = None) -> dict:
+    def ask(self, question: str, top_k: int = 5, summary_ids: list[int] | None = None, search_mode: str = "quick") -> dict:
         if self._vector_store.count() == 0:
             return {"ok": False, "error": "Vector store is empty. Load summaries first."}
 
-        # Retrieve relevant docs
-        context_docs = self._vector_store.search(question, top_k, summary_ids=summary_ids)
+        # Build summary to recording ID mapping for deep search filtering
+        summary_to_recording_map = None
+        if search_mode == "deep" and summary_ids:
+            summaries_map = self._sqlite_db_repository.get_latest_summaries_map()
+            summary_to_recording_map = {s.id: s.recording_id for s in summaries_map.values()}
+
+        # Retrieve relevant docs using the specified search mode
+        context_docs = self._vector_store.search(
+            question,
+            top_k,
+            summary_ids=summary_ids,
+            search_mode=search_mode,
+            summary_to_recording_map=summary_to_recording_map
+        )
 
         # Generate answer using RAG
         try:
@@ -144,6 +228,7 @@ class RAGController:
             "answer": result["answer"],
             "sources": result["sources"],
             "question": question,
+            "search_mode": search_mode,
         }
 
     def get_mind_map_data(self, summary_ids: list[int] | None = None) -> dict:

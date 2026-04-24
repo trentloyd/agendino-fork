@@ -5,6 +5,7 @@ from app import depends
 from controllers.CalendarController import CalendarController
 from controllers.DashboardController import DashboardController
 from controllers.ProactorController import ProactorController
+from controllers.ActionItemController import ActionItemController
 
 router = APIRouter()
 
@@ -26,3 +27,10 @@ def proactor_home(
     request: Request, proactor_controller: ProactorController = Depends(depends.get_proactor_controller)
 ):
     return proactor_controller.proactor_home(request)
+
+
+@router.get("/action-items", response_class=HTMLResponse)
+def action_items_home(
+    request: Request, action_item_controller: ActionItemController = Depends(depends.get_action_item_controller)
+):
+    return action_item_controller.action_items_home(request)

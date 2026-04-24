@@ -1,0 +1,12 @@
+Refine drafts into concise text by removing fillers and improving flow while maintaining the message.
+
+CONTEXT
+The main objective is to produce a refined, concise and engaging text that effectively conveys the original message.
+Essential information, key ideas and original intent must be preserved.
+Redundant sentences, useless information and repetitive concepts must be eliminated.
+Language must be simplified using active voice, positive formulation and breaking down complex sentences.
+Connections between ideas and paragraphs must be strengthened for fluid logic.
+Excessively long sentences must be reformulated to reduce their length while maintaining meaning.
+Readability must be optimized through correct grammar, concise syntax and avoiding unclear sentences.
+Superfluous elements such as unnecessary words, filler language or tangential content must be omitted.
+The desired result is a clear, engaging and highly concise text that balances brevity and readability while maintaining all essential information.

@@ -8,6 +8,7 @@ from models.DBRecording import DBRecording
 from models.DBSummary import DBSummary
 from models.DBTask import DBTask
 from models.DBSharedCalendar import DBSharedCalendar
+from models.DBActionItem import DBActionItem
 
 
 class SqliteDBRepository:
@@ -1155,5 +1156,257 @@ class SqliteDBRepository:
                 (error, calendar_id),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def _ensure_action_items_table(self) -> None:
+        """Ensure action_items table exists with proper schema."""
+        conn = self._connect()
+        try:
+            # Check if table exists and has the old schema
+            cursor = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='action_items'")
+            existing_schema = cursor.fetchone()
+
+            if existing_schema and 'task_id INTEGER NOT NULL' in existing_schema[0]:
+                # Table exists with old schema, need to recreate it
+                print("Updating action_items table schema to allow NULL task_id...")
+
+                # Create new table with correct schema
+                conn.execute("""
+                    CREATE TABLE action_items_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        task_id INTEGER,
+                        recording_id INTEGER NOT NULL,
+                        summary_id INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        due_date TEXT,
+                        priority TEXT DEFAULT 'medium',
+                        status TEXT DEFAULT 'pending',
+                        archived INTEGER DEFAULT 0,
+                        assigned_to TEXT,
+                        meeting_title TEXT,
+                        meeting_date TEXT,
+                        created_at TEXT DEFAULT (datetime('now')),
+                        completed_at TEXT,
+                        archived_at TEXT,
+                        FOREIGN KEY (task_id) REFERENCES task (id) ON DELETE CASCADE,
+                        FOREIGN KEY (recording_id) REFERENCES recording (id) ON DELETE CASCADE,
+                        FOREIGN KEY (summary_id) REFERENCES summary (id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Copy data from old table
+                conn.execute("""
+                    INSERT INTO action_items_new
+                    SELECT * FROM action_items
+                """)
+
+                # Drop old table and rename new one
+                conn.execute("DROP TABLE action_items")
+                conn.execute("ALTER TABLE action_items_new RENAME TO action_items")
+
+                print("✅ action_items table schema updated successfully")
+            else:
+                # Create table if it doesn't exist or already has correct schema
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS action_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        task_id INTEGER,
+                        recording_id INTEGER NOT NULL,
+                        summary_id INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        due_date TEXT,
+                        priority TEXT DEFAULT 'medium',
+                        status TEXT DEFAULT 'pending',
+                        archived INTEGER DEFAULT 0,
+                        assigned_to TEXT,
+                        meeting_title TEXT,
+                        meeting_date TEXT,
+                        created_at TEXT DEFAULT (datetime('now')),
+                        completed_at TEXT,
+                        archived_at TEXT,
+                        FOREIGN KEY (task_id) REFERENCES task (id) ON DELETE CASCADE,
+                        FOREIGN KEY (recording_id) REFERENCES recording (id) ON DELETE CASCADE,
+                        FOREIGN KEY (summary_id) REFERENCES summary (id) ON DELETE CASCADE
+                    )
+                """)
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    def create_action_item(self, action_item: DBActionItem) -> DBActionItem:
+        """Create a new action item from an existing task or summary."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            result = conn.execute(
+                """
+                INSERT INTO action_items
+                (task_id, recording_id, summary_id, title, description, due_date, priority,
+                 status, assigned_to, meeting_title, meeting_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    action_item.task_id,  # Can be None for summary-extracted action items
+                    action_item.recording_id,
+                    action_item.summary_id,
+                    action_item.title,
+                    action_item.description,
+                    action_item.due_date.isoformat() if action_item.due_date else None,
+                    action_item.priority,
+                    action_item.status,
+                    action_item.assigned_to,
+                    action_item.meeting_title,
+                    action_item.meeting_date.isoformat() if action_item.meeting_date else None,
+                ),
+            )
+            conn.commit()
+            action_item.id = result.lastrowid
+            return action_item
+        finally:
+            conn.close()
+
+    def get_all_action_items(self, include_archived: bool = False) -> list[DBActionItem]:
+        """Get all action items, optionally including archived ones."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            query = "SELECT * FROM action_items"
+            if not include_archived:
+                query += " WHERE archived = 0"
+            query += " ORDER BY created_at DESC"
+
+            rows = conn.execute(query).fetchall()
+            return [DBActionItem.from_dict(dict(row)) for row in rows]
+        finally:
+            conn.close()
+
+    def get_action_item_by_id(self, action_item_id: int) -> DBActionItem | None:
+        """Get a specific action item by ID."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            row = conn.execute("SELECT * FROM action_items WHERE id = ?", (action_item_id,)).fetchone()
+            return DBActionItem.from_dict(dict(row)) if row else None
+        finally:
+            conn.close()
+
+    def update_action_item(
+        self,
+        action_item_id: int,
+        title: str | None = None,
+        description: str | None = None,
+        due_date: str | None = None,
+        priority: str | None = None,
+        status: str | None = None,
+        assigned_to: str | None = None,
+    ) -> DBActionItem | None:
+        """Update an action item with new values."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            existing = conn.execute("SELECT * FROM action_items WHERE id = ?", (action_item_id,)).fetchone()
+            if not existing:
+                return None
+
+            updates = []
+            params = []
+
+            if title is not None:
+                updates.append("title = ?")
+                params.append(title)
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            if due_date is not None:
+                updates.append("due_date = ?")
+                params.append(due_date)
+            if priority is not None:
+                updates.append("priority = ?")
+                params.append(priority)
+            if status is not None:
+                updates.append("status = ?")
+                params.append(status)
+                if status == "completed":
+                    updates.append("completed_at = datetime('now')")
+            if assigned_to is not None:
+                updates.append("assigned_to = ?")
+                params.append(assigned_to)
+
+            if updates:
+                params.append(action_item_id)
+                query = f"UPDATE action_items SET {', '.join(updates)} WHERE id = ?"
+                conn.execute(query, params)
+                conn.commit()
+
+            return self.get_action_item_by_id(action_item_id)
+        finally:
+            conn.close()
+
+    def archive_action_item(self, action_item_id: int) -> bool:
+        """Archive an action item."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            result = conn.execute(
+                "UPDATE action_items SET archived = 1, archived_at = datetime('now') WHERE id = ?",
+                (action_item_id,)
+            )
+            conn.commit()
+            return result.rowcount > 0
+        finally:
+            conn.close()
+
+    def unarchive_action_item(self, action_item_id: int) -> bool:
+        """Unarchive an action item."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            result = conn.execute(
+                "UPDATE action_items SET archived = 0, archived_at = NULL WHERE id = ?",
+                (action_item_id,)
+            )
+            conn.commit()
+            return result.rowcount > 0
+        finally:
+            conn.close()
+
+    def delete_action_item(self, action_item_id: int) -> bool:
+        """Permanently delete an action item."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            result = conn.execute("DELETE FROM action_items WHERE id = ?", (action_item_id,))
+            conn.commit()
+            return result.rowcount > 0
+        finally:
+            conn.close()
+
+    def get_action_items_by_meeting(self, recording_id: int) -> list[DBActionItem]:
+        """Get all action items from a specific meeting/recording."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM action_items WHERE recording_id = ? ORDER BY created_at ASC",
+                (recording_id,)
+            ).fetchall()
+            return [DBActionItem.from_dict(dict(row)) for row in rows]
+        finally:
+            conn.close()
+
+    def get_action_items_by_status(self, status: str) -> list[DBActionItem]:
+        """Get all action items with a specific status."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM action_items WHERE status = ? AND archived = 0 ORDER BY created_at DESC",
+                (status,)
+            ).fetchall()
+            return [DBActionItem.from_dict(dict(row)) for row in rows]
         finally:
             conn.close()

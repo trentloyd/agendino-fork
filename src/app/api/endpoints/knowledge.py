@@ -34,7 +34,12 @@ async def search(
     body: RAGQueryRequestDTO,
     rag_controller: RAGController = Depends(depends.get_rag_controller),
 ):
-    return rag_controller.search(body.query, body.top_k or 5, summary_ids=body.summary_ids)
+    return rag_controller.search(
+        body.query,
+        body.top_k or 5,
+        summary_ids=body.summary_ids,
+        search_mode=body.search_mode or "quick"
+    )
 
 
 @router.post("/ask")
@@ -42,7 +47,19 @@ async def ask(
     body: RAGQueryRequestDTO,
     rag_controller: RAGController = Depends(depends.get_rag_controller),
 ):
-    return rag_controller.ask(body.query, body.top_k or 5, summary_ids=body.summary_ids)
+    return rag_controller.ask(
+        body.query,
+        body.top_k or 5,
+        summary_ids=body.summary_ids,
+        search_mode=body.search_mode or "quick"
+    )
+
+
+@router.post("/load-transcripts")
+async def load_transcripts(
+    rag_controller: RAGController = Depends(depends.get_rag_controller),
+):
+    return rag_controller.load_transcripts()
 
 
 @router.post("/mindmap")
