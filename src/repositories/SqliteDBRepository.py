@@ -1346,6 +1346,20 @@ class SqliteDBRepository:
         finally:
             conn.close()
 
+    def update_action_items_meeting_title(self, recording_id: int, new_meeting_title: str) -> int:
+        """Update meeting title for all action items from a specific recording."""
+        self._ensure_action_items_table()
+        conn = self._connect()
+        try:
+            result = conn.execute(
+                "UPDATE action_items SET meeting_title = ? WHERE recording_id = ?",
+                (new_meeting_title, recording_id),
+            )
+            conn.commit()
+            return result.rowcount
+        finally:
+            conn.close()
+
     def archive_action_item(self, action_item_id: int) -> bool:
         """Archive an action item."""
         self._ensure_action_items_table()

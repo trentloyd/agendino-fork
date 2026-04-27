@@ -168,12 +168,16 @@ WHISPER_COMPUTE_TYPE=auto
 2. **Creating Action Items**:
    - Action items are automatically created from meeting tasks during summarization
    - You can also manually convert any task to an action item
+   - **Create Manual Action Items**: Use the "Create Action Item" button to add action items directly without requiring a meeting or task
 3. **Managing Items**:
    - Filter by status (pending, in progress, completed) or priority (low, medium, high)
    - Edit titles, descriptions, due dates, and assignments
    - Use batch operations to update multiple items at once
    - Archive completed items to keep your list organized
-4. **Status Tracking**: Items progress from `pending` → `in_progress` → `completed`
+4. **Meeting Title Synchronization**:
+   - **Sync from Source**: Use the sync button (↻) to update all action items with the current recording/summary title
+   - **Manual Rename**: Use the pencil button to rename the meeting title across all related action items
+5. **Status Tracking**: Items progress from `pending` → `in_progress` → `completed`
 
 ### Using the Knowledge Base
 
@@ -255,11 +259,13 @@ API routes are organized by feature area:
 |----------|---------------------------------|--------------------------------------|
 | `GET`    | `/api/action-items/`            | List all action items                |
 | `POST`   | `/api/action-items/`            | Create new action item from task     |
+| `POST`   | `/api/action-items/manual`      | Create manual action item            |
 | `GET`    | `/api/action-items/{id}`        | Get specific action item by ID       |
 | `PUT`    | `/api/action-items/{id}`        | Update action item                   |
 | `DELETE` | `/api/action-items/{id}`        | Delete action item                   |
 | `POST`   | `/api/action-items/{id}/archive` | Archive/unarchive action item       |
 | `POST`   | `/api/action-items/convert/{task_id}` | Convert task to action item    |
+| `POST`   | `/api/recordings/{id}/sync-meeting-title` | Sync meeting title for action items |
 
 ### Knowledge Base (`/api/knowledge`)
 

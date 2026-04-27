@@ -5,6 +5,7 @@ class ActionItemsManager {
         this.currentEditingId = null;
         this.selectedItems = new Set();
         this.editModal = new bootstrap.Modal(document.getElementById('editModal'));
+        this.createModal = new bootstrap.Modal(document.getElementById('createModal'));
         this.confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
         this.pendingAction = null;
 
@@ -43,6 +44,14 @@ class ActionItemsManager {
 
         document.getElementById('save-changes').addEventListener('click', () => {
             this.saveChanges();
+        });
+
+        document.getElementById('btn-create-action-item').addEventListener('click', () => {
+            this.openCreateModal();
+        });
+
+        document.getElementById('create-action-item').addEventListener('click', () => {
+            this.createActionItem();
         });
 
         document.getElementById('confirmModalAction').addEventListener('click', () => {
@@ -198,6 +207,16 @@ class ActionItemsManager {
                     <button class="btn btn-outline-primary btn-sm" onclick="actionItemsManager.editItem(${item.id})" title="Edit">
                         <i class="bi bi-pencil"></i>
                     </button>
+                    ${item.recording_id ?
+                        `<div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-info btn-sm" onclick="actionItemsManager.syncMeetingTitleFromSource(${item.recording_id})" title="Sync from Source">
+                                <i class="bi bi-arrow-repeat"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="actionItemsManager.renameMeetingTitle(${item.recording_id}, '${this.escapeHtml(item.meeting_title || '')}')" title="Rename Meeting Title">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                        </div>` : ''
+                    }
                     ${item.archived ?
                         `<button class="btn btn-outline-success btn-sm" onclick="actionItemsManager.unarchiveItem(${item.id})" title="Unarchive">
                             <i class="bi bi-archive"></i>
@@ -389,6 +408,104 @@ class ActionItemsManager {
 
     showError(message) {
         this.showToast(message, 'danger');
+    }
+
+    openCreateModal() {
+        // Reset form
+        document.getElementById('create-title').value = '';
+        document.getElementById('create-description').value = '';
+        document.getElementById('create-priority').value = 'medium';
+        document.getElementById('create-assigned').value = '';
+        document.getElementById('create-due-date').value = '';
+        document.getElementById('create-meeting-title').value = '';
+
+        this.createModal.show();
+    }
+
+    async createActionItem() {
+        const formData = {
+            title: document.getElementById('create-title').value,
+            description: document.getElementById('create-description').value || null,
+            priority: document.getElementById('create-priority').value,
+            assigned_to: document.getElementById('create-assigned').value || null,
+            due_date: document.getElementById('create-due-date').value || null,
+            meeting_title: document.getElementById('create-meeting-title').value || null
+        };
+
+        if (!formData.title.trim()) {
+            this.showError('Title is required');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/action-items/manual', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to create action item');
+            }
+
+            this.createModal.hide();
+            this.loadActionItems();
+            this.showSuccess('Action item created successfully');
+
+        } catch (error) {
+            console.error('Error creating action item:', error);
+            this.showError('Failed to create action item');
+        }
+    }
+
+    async syncMeetingTitleFromSource(recordingId) {
+        // Sync meeting title from the original recording/summary source
+        try {
+            const response = await fetch(`/api/recordings/${recordingId}/sync-meeting-title`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to sync meeting title from source');
+            }
+
+            const result = await response.json();
+            this.loadActionItems();
+            this.showSuccess(result.message);
+
+        } catch (error) {
+            console.error('Error syncing meeting title from source:', error);
+            this.showError('Failed to sync meeting title from source');
+        }
+    }
+
+    async renameMeetingTitle(recordingId, currentTitle) {
+        // Manually rename meeting title for all action items from this recording
+        const newTitle = prompt('Enter new meeting title:', currentTitle);
+
+        if (newTitle === null || newTitle === currentTitle) {
+            return; // User cancelled or no change
+        }
+
+        try {
+            const response = await fetch(`/api/recordings/${recordingId}/sync-meeting-title?meeting_title=${encodeURIComponent(newTitle)}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to rename meeting title');
+            }
+
+            const result = await response.json();
+            this.loadActionItems();
+            this.showSuccess(result.message);
+
+        } catch (error) {
+            console.error('Error renaming meeting title:', error);
+            this.showError('Failed to rename meeting title');
+        }
     }
 
     showToast(message, type) {
