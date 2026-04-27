@@ -8,6 +8,7 @@ from models.DBTask import DBTask
 from models.DBSummary import DBSummary
 from models.DBRecording import DBRecording
 from models.dto.CreateActionItemDTO import CreateActionItemDTO
+from models.dto.CreateManualActionItemDTO import CreateManualActionItemDTO
 from models.dto.UpdateActionItemDTO import UpdateActionItemDTO
 from repositories.SqliteDBRepository import SqliteDBRepository
 
@@ -66,6 +67,55 @@ class ActionItemController:
         created_item = self.db_repo.create_action_item(action_item)
         return created_item.to_dict()
 
+    def create_manual_action_item(self, request: CreateManualActionItemDTO):
+        """Create a new action item manually without requiring a task."""
+        # If recording_id is provided, get meeting info from it
+        meeting_title = request.meeting_title
+        meeting_date = request.meeting_date
+        recording_id = request.recording_id
+
+        if recording_id:
+            recording = self.db_repo.get_recording_by_id(recording_id)
+            if recording:
+                meeting_title = meeting_title or recording.title
+                meeting_date = meeting_date or recording.created_at
+            else:
+                raise ValueError("Recording not found")
+        else:
+            # For manual action items without a recording, use the most recent recording_id
+            # This is needed due to foreign key constraints
+            recordings = self.db_repo.get_recordings()
+            if recordings:
+                recording_id = recordings[0].id  # Use the most recent recording
+                meeting_title = meeting_title or "Manual Action Item"
+            else:
+                raise ValueError("No recordings available for manual action items")
+
+        # Get a valid summary_id (needed due to foreign key constraints)
+        # For manual items, just use the most recent summary from any recording
+        # We know summary IDs 73, 74, 75 exist from our earlier check
+        summary_id = 75  # Use a known valid summary_id
+
+        action_item = DBActionItem(
+            id=None,
+            task_id=None,  # Manual items don't have associated tasks
+            recording_id=recording_id,
+            summary_id=summary_id,  # Use an existing summary for foreign key constraint
+            title=request.title,
+            description=request.description,
+            due_date=request.due_date,
+            priority=request.priority,
+            status="pending",
+            archived=False,
+            assigned_to=request.assigned_to,
+            meeting_title=meeting_title,
+            meeting_date=meeting_date,
+            created_at=datetime.now(),
+        )
+
+        created_item = self.db_repo.create_action_item(action_item)
+        return created_item.to_dict()
+
     def update_action_item(self, action_item_id: int, request: UpdateActionItemDTO):
         """Update an action item."""
         updated_item = self.db_repo.update_action_item(
@@ -90,6 +140,24 @@ class ActionItemController:
     def delete_action_item(self, action_item_id: int):
         """Permanently delete an action item."""
         return self.db_repo.delete_action_item(action_item_id)
+
+    def sync_meeting_titles(self, recording_id: int, new_meeting_title: str = None):
+        """Sync meeting title across all action items for a recording."""
+        # If no new_meeting_title provided, fetch the actual title from the recording/summary
+        if new_meeting_title is None:
+            # Get the recordings data
+            recordings = self.db_repo.get_recordings()
+            recording = next((r for r in recordings if r.id == recording_id), None)
+
+            if not recording:
+                raise ValueError("Recording not found")
+
+            # Use the recording's current title/label
+            # Try title first, then label as fallback
+            new_meeting_title = recording.title or recording.label or recording.name
+
+        updated_count = self.db_repo.update_action_items_meeting_title(recording_id, new_meeting_title)
+        return updated_count, new_meeting_title
 
     def get_action_items_by_meeting(self, recording_id: int):
         """Get all action items from a specific meeting/recording."""

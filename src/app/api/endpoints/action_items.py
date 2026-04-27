@@ -4,6 +4,7 @@ from typing import List, Optional
 from app import depends
 from controllers.ActionItemController import ActionItemController
 from models.dto.CreateActionItemDTO import CreateActionItemDTO
+from models.dto.CreateManualActionItemDTO import CreateManualActionItemDTO
 from models.dto.UpdateActionItemDTO import UpdateActionItemDTO
 
 router = APIRouter()
@@ -37,6 +38,15 @@ async def create_action_item(
 ):
     """Create a new action item from an existing task."""
     return action_item_controller.create_action_item(request)
+
+
+@router.post("/action-items/manual")
+async def create_manual_action_item(
+    request: CreateManualActionItemDTO,
+    action_item_controller: ActionItemController = Depends(depends.get_action_item_controller),
+):
+    """Create a new action item manually without requiring a task."""
+    return action_item_controller.create_manual_action_item(request)
 
 
 @router.put("/action-items/{action_item_id}")
@@ -113,3 +123,28 @@ async def convert_task_to_action_item(
 ):
     """Convert an existing task to an action item."""
     return action_item_controller.convert_task_to_action_item(task_id)
+
+
+@router.post("/recordings/{recording_id}/sync-meeting-title")
+async def sync_meeting_titles(
+    recording_id: int,
+    meeting_title: str = None,
+    action_item_controller: ActionItemController = Depends(depends.get_action_item_controller),
+):
+    """Sync meeting title across all action items for a recording.
+
+    If meeting_title is provided, uses that title.
+    If meeting_title is None, fetches the current title from recording/summary.
+    """
+    updated_count, actual_title = action_item_controller.sync_meeting_titles(recording_id, meeting_title)
+
+    if meeting_title is None:
+        message = f"Synced {updated_count} action items with current meeting title: '{actual_title}'"
+    else:
+        message = f"Updated {updated_count} action items with new meeting title: '{actual_title}'"
+
+    return {
+        "message": message,
+        "updated_count": updated_count,
+        "meeting_title": actual_title
+    }
