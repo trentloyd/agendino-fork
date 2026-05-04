@@ -9,7 +9,9 @@ Agendino is a web-based dashboard for managing, transcribing, and summarizing au
 - **AI Transcription** — Two transcription engines available:
   - **Gemini** (`gemini-2.5-flash`) — Cloud-based transcription with automatic speaker diarization, timestamps, and speaker labels.
   - **Whisper** (local, via [faster-whisper](https://github.com/SYSTRAN/faster-whisper)) — Offline transcription running entirely on your machine. Best for long recordings where Gemini may truncate the output.
-- **AI Summarization** — Generate structured summaries (title, tags, and full markdown summary) from transcripts using Gemini. Choose from multiple system prompts organized by language and category (e.g. General, Meetings, Education, IT & Engineering).
+- **AI Summarization** — Generate structured summaries (title, tags, and full markdown summary) from transcripts using Gemini. Features include:
+  - **Quick Summarize** — One-click summarization with the DefaultSummary prompt for consistent, structured output
+  - **Custom Prompts** — Choose from multiple system prompts organized by language and category (e.g. General, Meetings, Education, IT & Engineering)
 - **Action Items Management** — Convert meeting tasks into actionable items with:
   - Priority levels (high, medium, low)
   - Status tracking (pending, in_progress, completed)
