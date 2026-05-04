@@ -61,7 +61,8 @@ function actionButtons(rec) {
             if (rec.has_summary) {
                     btns.push(`<button class="btn btn-sm btn-outline-info btn-view-summary" data-name="${rec.name}" title="View summaries"><i class="bi bi-journal-text"></i></button>`);
             }
-            btns.push(`<button class="btn btn-sm btn-outline-warning btn-summarize" data-name="${rec.name}" title="Summarize"><i class="bi bi-stars"></i></button>`);
+            btns.push(`<button class="btn btn-sm btn-outline-primary btn-quick-summarize" data-name="${rec.name}" title="Quick summarize with DefaultSummary"><i class="bi bi-lightning"></i></button>`);
+            btns.push(`<button class="btn btn-sm btn-outline-warning btn-summarize" data-name="${rec.name}" title="Summarize with custom prompt"><i class="bi bi-stars"></i></button>`);
         } else {
             btns.push(`<div class="btn-group btn-group-sm transcribe-split" style="position:relative">
                 <button class="btn btn-outline-primary btn-transcribe" data-name="${rec.name}" data-engine="gemini" title="Transcribe with Gemini"><i class="bi bi-mic"></i></button>
@@ -874,6 +875,14 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
+        // --- Quick Summarize button → use DefaultSummary directly ---
+        const quickSummarizeBtn = e.target.closest(".btn-quick-summarize");
+        if (quickSummarizeBtn) {
+            e.preventDefault();
+            const name = quickSummarizeBtn.dataset.name;
+            startQuickSummarization(name, quickSummarizeBtn);
+        }
+
         // --- Summarize button → open prompt picker ---
         const summarizeBtn = e.target.closest(".btn-summarize");
         if (summarizeBtn) {
@@ -1136,6 +1145,53 @@ document.addEventListener("DOMContentLoaded", () => {
         promptBackdrop.addEventListener("click", (e) => {
             if (e.target === promptBackdrop) closePromptPicker();
         });
+    }
+
+    async function startQuickSummarization(name, triggerBtn) {
+        // Disable button while working
+        if (triggerBtn) {
+            triggerBtn.disabled = true;
+            triggerBtn._origHTML = triggerBtn._origHTML || triggerBtn.innerHTML;
+            triggerBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+        }
+
+        currentSummarizeName = name;
+        openSummaryModal(name);
+        summaryLoading.querySelector("p").textContent = "Generating summary with DefaultSummary… this may take a moment.";
+
+        try {
+            const res = await fetch(`${SUMMARIZE_URL}/${encodeURIComponent(name)}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt_id: "en/General/DefaultSummary" }),
+            });
+            const data = await res.json();
+
+            hide(summaryLoading);
+            if (data.ok) {
+                const summariesRes = await fetch(`${SUMMARIES_URL}/${encodeURIComponent(name)}`);
+                const summariesData = await summariesRes.json();
+                if (summariesData.ok) {
+                    summaryContent.innerHTML = renderSummaryVersions(summariesData.summaries || []);
+                } else {
+                    summaryContent.innerHTML = formatMarkdown(data.summary);
+                }
+                show(summaryContent);
+                await loadDashboard();
+            } else {
+                summaryError.textContent = data.error;
+                show(summaryError);
+            }
+        } catch (err) {
+            hide(summaryLoading);
+            summaryError.textContent = `Summarization failed: ${err.message}`;
+            show(summaryError);
+        } finally {
+            if (triggerBtn) {
+                triggerBtn.disabled = false;
+                triggerBtn.innerHTML = triggerBtn._origHTML;
+            }
+        }
     }
 
     async function openPromptPicker(name) {
