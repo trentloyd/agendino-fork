@@ -487,11 +487,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const uploadFormSection = $("#upload-form-section");
     const uploadProgress = $("#upload-progress");
     const uploadResult = $("#upload-result");
+    const uploadFileList = $("#upload-file-list");
+    const uploadFileNames = $("#upload-file-names");
+    const uploadProgressList = $("#upload-progress-list");
 
     function openUploadModal() {
         if (uploadFileInput) uploadFileInput.value = "";
         if (uploadLabelInput) uploadLabelInput.value = "";
         if (uploadSubmitBtn) uploadSubmitBtn.disabled = true;
+        if (uploadFileNames) uploadFileNames.innerHTML = "";
+        hide(uploadFileList);
+        if (uploadProgressList) uploadProgressList.innerHTML = "";
         show(uploadFormSection);
         hide(uploadProgress);
         hide(uploadResult);
@@ -518,8 +524,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (uploadFileInput) {
         uploadFileInput.addEventListener("change", () => {
+            const hasFiles = uploadFileInput.files && uploadFileInput.files.length > 0;
             if (uploadSubmitBtn) {
-                uploadSubmitBtn.disabled = !uploadFileInput.files || uploadFileInput.files.length === 0;
+                uploadSubmitBtn.disabled = !hasFiles;
+            }
+
+            if (hasFiles) {
+                const fileList = Array.from(uploadFileInput.files);
+                uploadFileNames.innerHTML = fileList.map(file =>
+                    `<li class="small text-muted"><i class="bi bi-file-earmark me-1"></i>${file.name} (${formatSize(file.size)})</li>`
+                ).join("");
+                show(uploadFileList);
+            } else {
+                hide(uploadFileList);
             }
         });
     }
@@ -528,43 +545,94 @@ document.addEventListener("DOMContentLoaded", () => {
         uploadSubmitBtn.addEventListener("click", async () => {
             if (!uploadFileInput.files || uploadFileInput.files.length === 0) return;
 
-            const file = uploadFileInput.files[0];
+            const files = Array.from(uploadFileInput.files);
             const label = uploadLabelInput ? uploadLabelInput.value.trim() : "";
 
             hide(uploadFormSection);
             show(uploadProgress);
             hide(uploadResult);
 
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("label", label);
+            // Initialize progress list
+            uploadProgressList.innerHTML = files.map((file, index) => `
+                <div class="mb-2" data-file-index="${index}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted"><i class="bi bi-file-earmark me-1"></i>${file.name}</small>
+                        <span class="upload-status upload-status-${index}">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                        </span>
+                    </div>
+                </div>
+            `).join("");
 
-            try {
-                const res = await fetch(UPLOAD_URL, { method: "POST", body: formData });
-                const data = await res.json();
+            const results = [];
+            const errors = [];
 
-                hide(uploadProgress);
-                if (data.ok) {
-                    uploadResult.className = "alert alert-success mt-3";
-                    uploadResult.innerHTML = `<i class="bi bi-check-circle me-1"></i>${data.message}`;
-                    show(uploadResult);
-                    setTimeout(async () => {
-                        closeUploadModal();
-                        await loadDashboard();
-                    }, 1200);
-                } else {
-                    uploadResult.className = "alert alert-danger mt-3";
-                    uploadResult.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>${data.error}`;
-                    show(uploadResult);
-                    show(uploadFormSection);
+            // Upload files sequentially to avoid overwhelming the server
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const statusEl = $(`.upload-status-${i}`);
+
+                try {
+                    const formData = new FormData();
+                    formData.append("file", file);
+                    formData.append("label", label);
+
+                    const res = await fetch(UPLOAD_URL, { method: "POST", body: formData });
+                    const data = await res.json();
+
+                    if (data.ok) {
+                        statusEl.innerHTML = '<i class="bi bi-check-circle text-success"></i>';
+                        results.push(file.name);
+                    } else {
+                        statusEl.innerHTML = '<i class="bi bi-x-circle text-danger"></i>';
+                        errors.push(`${file.name}: ${data.error}`);
+                    }
+                } catch (err) {
+                    statusEl.innerHTML = '<i class="bi bi-x-circle text-danger"></i>';
+                    errors.push(`${file.name}: ${err.message}`);
                 }
-            } catch (err) {
-                hide(uploadProgress);
-                uploadResult.className = "alert alert-danger mt-3";
-                uploadResult.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>Upload failed: ${err.message}`;
-                show(uploadResult);
+            }
+
+            hide(uploadProgress);
+
+            // Show results
+            let resultHtml = "";
+            let resultClass = "";
+
+            if (results.length > 0 && errors.length === 0) {
+                // All successful
+                resultClass = "alert alert-success mt-3";
+                resultHtml = `<i class="bi bi-check-circle me-1"></i>Successfully uploaded ${results.length} file(s)`;
+                setTimeout(async () => {
+                    closeUploadModal();
+                    await loadDashboard();
+                }, 1500);
+            } else if (results.length > 0 && errors.length > 0) {
+                // Partial success
+                resultClass = "alert alert-warning mt-3";
+                resultHtml = `<i class="bi bi-exclamation-triangle me-1"></i>Uploaded ${results.length} of ${files.length} files successfully`;
+                if (errors.length <= 3) {
+                    resultHtml += `<br><small class="text-muted">Failed: ${errors.join("; ")}</small>`;
+                } else {
+                    resultHtml += `<br><small class="text-muted">${errors.length} files failed to upload</small>`;
+                }
+                show(uploadFormSection);
+                setTimeout(async () => {
+                    await loadDashboard();
+                }, 2000);
+            } else {
+                // All failed
+                resultClass = "alert alert-danger mt-3";
+                resultHtml = `<i class="bi bi-exclamation-triangle me-1"></i>Upload failed for all files`;
+                if (errors.length <= 3) {
+                    resultHtml += `<br><small>${errors.join("; ")}</small>`;
+                }
                 show(uploadFormSection);
             }
+
+            uploadResult.className = resultClass;
+            uploadResult.innerHTML = resultHtml;
+            show(uploadResult);
         });
     }
 

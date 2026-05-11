@@ -5,7 +5,7 @@ Agendino is a web-based dashboard for managing, transcribing, and summarizing au
 ## Features
 
 - **HiDock USB Integration** — Detects and communicates with HiDock H1 / H1E / P1 devices over USB. List, download, and delete recordings directly from the device. View device info and storage usage.
-- **Local Recording Management** — Sync recordings from the device to local storage. Browse, play back, and manage `.hda` audio files from the web dashboard.
+- **Local Recording Management** — Sync recordings from the device to local storage. Browse, play back, and manage `.hda` audio files from the web dashboard. Upload multiple audio files at once with individual progress tracking.
 - **AI Transcription** — Two transcription engines available:
   - **Gemini** (`gemini-2.5-flash`) — Cloud-based transcription with automatic speaker diarization, timestamps, and speaker labels.
   - **Whisper** (local, via [faster-whisper](https://github.com/SYSTRAN/faster-whisper)) — Offline transcription running entirely on your machine. Best for long recordings where Gemini may truncate the output.
@@ -126,11 +126,24 @@ WHISPER_COMPUTE_TYPE=auto
 
 ## Usage
 
-### Syncing Recordings
+### Syncing and Uploading Recordings
+
+#### Syncing from HiDock Device
 
 1. Connect your HiDock device via USB.
 2. From the dashboard, click **Sync** to download new recordings from the device to local storage and register them in the database.
 3. Recordings already present locally are skipped automatically.
+
+#### Manual File Upload
+
+1. Click the **Upload** button in the dashboard header.
+2. **Single File**: Select one audio file to upload.
+3. **Multiple Files**: Select multiple audio files at once for batch upload.
+4. **Supported Formats**: HDA, MP3, WAV, M4A, OGG, WebM, FLAC, AAC, WMA.
+5. **Progress Tracking**: Each file shows individual upload progress with success/failure status.
+6. **Optional Label**: Add a label that will be applied to all uploaded files.
+
+The upload process handles files sequentially to avoid server overload and provides detailed feedback for each file.
 
 ### Transcribing a Recording
 
@@ -243,6 +256,7 @@ API routes are organized by feature area:
 | Method   | Endpoint                        | Description                          |
 |----------|---------------------------------|--------------------------------------|
 | `GET`    | `/api/dashboard/recordings`     | List all recordings with status      |
+| `POST`   | `/api/dashboard/upload`         | Upload audio files (supports multiple files) |
 | `POST`   | `/api/dashboard/sync`           | Sync recordings from device          |
 | `GET`    | `/api/dashboard/audio/{name}`   | Stream/download an audio file        |
 | `POST`   | `/api/dashboard/transcribe/{name}` | Transcribe a recording            |

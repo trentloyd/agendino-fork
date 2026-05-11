@@ -431,10 +431,14 @@
             <div class="transcript-modal-body">
                 <div id="upload-form-section">
                     <div class="mb-3">
-                        <label for="upload-file-input" class="form-label">Audio file</label>
+                        <label for="upload-file-input" class="form-label">Audio files</label>
                         <input class="form-control" type="file" id="upload-file-input"
-                               accept=".hda,.mp3,.wav,.m4a,.ogg,.webm,.flac,.aac,.wma">
-                        <div class="form-text">Supported: HDA, MP3, WAV, M4A, OGG, WebM, FLAC, AAC, WMA</div>
+                               accept=".hda,.mp3,.wav,.m4a,.ogg,.webm,.flac,.aac,.wma" multiple>
+                        <div class="form-text">Supported: HDA, MP3, WAV, M4A, OGG, WebM, FLAC, AAC, WMA. Select multiple files to upload them all at once.</div>
+                        <div id="upload-file-list" class="mt-2 d-none">
+                            <small class="text-muted">Selected files:</small>
+                            <ul id="upload-file-names" class="list-unstyled mt-1 mb-0"></ul>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="upload-label-input" class="form-label">Label <small class="text-muted">(optional)</small></label>
@@ -447,9 +451,12 @@
                         </button>
                     </div>
                 </div>
-                <div id="upload-progress" class="text-center p-4 d-none">
-                    <div class="spinner-border text-primary" role="status"></div>
-                    <p class="mt-2 text-muted">Uploading…</p>
+                <div id="upload-progress" class="p-4 d-none">
+                    <div class="text-center mb-3">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Uploading files…</p>
+                    </div>
+                    <div id="upload-progress-list"></div>
                 </div>
                 <div id="upload-result" class="d-none mt-3"></div>
             </div>
