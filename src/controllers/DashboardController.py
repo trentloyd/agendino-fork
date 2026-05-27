@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 
 from fastapi import Request
@@ -73,6 +74,40 @@ class DashboardController:
         except (ValueError, IndexError):
             pass
         return None
+
+    @staticmethod
+    def _clean_filename_for_title(bare_name: str) -> str:
+        """Clean filename by removing dates and special characters to create a readable title."""
+        if not bare_name or not isinstance(bare_name, str):
+            return ""
+
+        # Remove common date patterns at the beginning (e.g., "2024Nov15-123456-")
+        cleaned = re.sub(r'^\d{4}[A-Za-z]{3}\d{2}-\d{6}-?', '', bare_name)
+
+        # Remove other date patterns (YYYY-MM-DD, YYYYMMDD, etc.)
+        cleaned = re.sub(r'^\d{4}-\d{1,2}-\d{1,2}[-_]?', '', cleaned)
+        cleaned = re.sub(r'^\d{8}[-_]?', '', cleaned)
+
+        # Remove time patterns (HHMMSS, HH-MM-SS, etc.)
+        cleaned = re.sub(r'^\d{6}[-_]?', '', cleaned)
+        cleaned = re.sub(r'^\d{2}[-_:]\d{2}[-_:]\d{2}[-_]?', '', cleaned)
+
+        # Replace underscores, hyphens, and dots with spaces
+        cleaned = re.sub(r'[-_.]+', ' ', cleaned)
+
+        # Remove special characters except spaces and alphanumeric
+        cleaned = re.sub(r'[^a-zA-Z0-9\s]', '', cleaned)
+
+        # Clean up multiple spaces and trim
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        # If nothing meaningful remains after cleaning, return empty string
+        # This will trigger the fallback to AI-generated title
+        if not cleaned or len(cleaned) < 2:
+            return ""
+
+        # Capitalize the first letter of each word
+        return cleaned.title()
 
     def home(self, request: Request):
         return self._templates.TemplateResponse(request=request, name="home.html")
@@ -389,8 +424,19 @@ class DashboardController:
             return {"ok": False, "error": f"Summarization failed: {str(e)}"}
 
         summary = result.get("summary", "")
-        title = result.get("title", "")
+        ai_generated_title = result.get("title", "")
         tags = result.get("tags", [])
+
+        # Use cleaned filename as primary title, with AI title as fallback for errors
+        try:
+            title = self._clean_filename_for_title(bare_name)
+            # If filename cleaning results in something too short or meaningless, use AI title
+            if not title.strip() or len(title.strip()) < 2:
+                title = ai_generated_title
+        except Exception:
+            # If filename cleaning fails for any reason, use AI-generated title
+            title = ai_generated_title
+
         tags_str = ",".join(tags)
 
         saved = self._sqlite_db_repository.save_summarization_result(

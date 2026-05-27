@@ -11,6 +11,7 @@ Agendino is a web-based dashboard for managing, transcribing, and summarizing au
   - **Whisper** (local, via [faster-whisper](https://github.com/SYSTRAN/faster-whisper)) — Offline transcription running entirely on your machine. Best for long recordings where Gemini may truncate the output.
 - **AI Summarization** — Generate structured summaries (title, tags, and full markdown summary) from transcripts using Gemini. Features include:
   - **Quick Summarize** — One-click summarization with the DefaultSummary prompt for consistent, structured output
+  - **Auto-Generated Titles** — Titles automatically extracted from audio filenames with intelligent cleaning (removes dates, special chars)
   - **Custom Prompts** — Choose from multiple system prompts organized by language and category (e.g. General, Meetings, Education, IT & Engineering)
 - **Action Items Management** — Convert meeting tasks into actionable items with:
   - Priority levels (high, medium, low)
@@ -156,9 +157,15 @@ The upload process handles files sequentially to avoid server overload and provi
 ### Summarizing a Recording
 
 1. Make sure the recording has been transcribed first.
-2. Click **Summarize** and choose a **system prompt** from the available categories (e.g. `Generale / SintesiAdattiva`, `IT&Engineering / ...`).
+2. Click **Summarize** and choose a **system prompt** from the available categories (e.g. `Generale / SintesiAdattiva`, `IT&Engineering / ...`), or use the **Quick Summarize** ⚡ button for one-click summarization with the DefaultSummary prompt.
 3. Gemini generates a structured JSON response containing a **title**, **tags**, and a **full markdown summary**.
-4. The result is saved to the database. You can edit the title and tags afterwards.
+4. **Auto-Generated Titles**: The system automatically generates titles from the audio filename by:
+   - Removing date/time patterns (e.g., `2024Nov15-123456-` → clean filename)
+   - Converting underscores, hyphens, and dots to spaces
+   - Removing special characters and capitalizing words
+   - Example: `2024Nov15-123456-team_meeting.mp3` → `Team Meeting`
+   - Falls back to AI-generated title only if filename cleaning fails or produces unusable results
+5. The result is saved to the database. You can edit the title and tags afterwards.
 
 ### Publishing Summaries
 
