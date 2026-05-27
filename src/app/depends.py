@@ -23,6 +23,8 @@ from services.ICalSyncService import ICalSyncService
 from services.ProactorService import ProactorService
 from services.ClaudeSummarizationService import ClaudeSummarizationService
 from services.ClaudeTaskGenerationService import ClaudeTaskGenerationService
+from services.EmailService import EmailService
+from services.DailyNotificationService import DailyNotificationService
 
 load_dotenv()
 
@@ -169,4 +171,15 @@ def get_action_item_controller() -> ActionItemController:
     return ActionItemController(
         db_repo=get_sqlite_db_repository(),
         template_path=os.path.join(get_root_path(), "src/templates/dashboard"),
+    )
+
+
+def get_email_service() -> EmailService:
+    return EmailService()
+
+
+def get_notification_service() -> DailyNotificationService:
+    return DailyNotificationService(
+        db_repo=get_sqlite_db_repository(),
+        email_service=get_email_service(),
     )

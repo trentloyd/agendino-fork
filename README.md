@@ -28,6 +28,7 @@ Agendino is a web-based dashboard for managing, transcribing, and summarizing au
   - **Notion** — Publish summaries as rich sub-pages with metadata callouts, tags, and formatted markdown
   - **Obsidian** — Export summaries to Obsidian vault with task conversion and auto-commit support
 - **Recording Metadata** — Edit titles and tags for any recording. Track transcription and summarization status across device, local, and database records.
+- **Email Notifications** — Daily email summaries of active action items with customizable scheduling and rich HTML formatting.
 - **Web Dashboard** — Multi-page web UI built with FastAPI, Jinja2 templates, and vanilla JavaScript.
 
 ## Requirements
@@ -97,6 +98,16 @@ NOTION_PAGE_ID=your-notion-parent-page-id
 # Optional — Obsidian integration
 OBSIDIAN_VAULT_PATH=/path/to/your/obsidian/vault
 OBSIDIAN_AUTO_COMMIT_SCRIPT=/path/to/auto-commit-script.sh
+
+# Optional — Email notifications for daily action items
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+FROM_EMAIL=your-email@gmail.com
+DAILY_NOTIFICATION_EMAIL=your-work-email@company.com
+DAILY_NOTIFICATION_TIME=09:00
+DAILY_NOTIFICATION_WEEKDAYS_ONLY=true
 
 # Optional — SQLite database name (default: agendino.db)
 DATABASE_NAME=agendino.db
@@ -201,6 +212,63 @@ The upload process handles files sequentially to avoid server overload and provi
    - **Manual Rename**: Use the pencil button to rename the meeting title across all related action items
 5. **Status Tracking**: Items progress from `pending` → `in_progress` → `completed`
 
+### Daily Email Notifications
+
+Agendino can automatically send daily email summaries of your active action items to keep you on track.
+
+#### Setup Email Notifications
+
+1. **Configure SMTP Settings** in your `.env` file:
+   ```env
+   # Email configuration
+   EMAIL_USER=your-email@gmail.com
+   EMAIL_PASSWORD=your-app-password  # Use App Password for Gmail
+   SMTP_SERVER=smtp.gmail.com
+   SMTP_PORT=587
+   FROM_EMAIL=your-email@gmail.com
+   DAILY_NOTIFICATION_EMAIL=your-work-email@company.com
+   DAILY_NOTIFICATION_TIME=09:00  # 24-hour format
+   DAILY_NOTIFICATION_WEEKDAYS_ONLY=true  # Skip weekends (default: true)
+   ```
+
+2. **For Gmail Users**: Create an App Password instead of using your regular password:
+   - Go to [Google Account Settings](https://myaccount.google.com/security)
+   - Enable 2-factor authentication if not already enabled
+   - Generate an App Password for "Mail"
+   - Use this App Password as your `EMAIL_PASSWORD`
+
+3. **Start the Daily Notification Service**:
+   ```bash
+   ./start_daily_notifications.sh
+   ```
+
+4. **Test Your Configuration**:
+   ```bash
+   # Test SMTP connection
+   curl -X POST "http://127.0.0.1:8000/api/notifications/test-connection"
+
+   # Send a test notification
+   curl -X POST "http://127.0.0.1:8000/api/notifications/test" \
+     -H "Content-Type: application/json" \
+     -d '{"email": "your-work-email@company.com"}'
+   ```
+
+#### Managing the Email Service
+
+- **Check Status**: `./status_daily_notifications.sh`
+- **Stop Service**: `./stop_daily_notifications.sh`
+- **View Logs**: `tail -f daily_notifications.log`
+
+#### Email Content
+
+Daily emails include:
+- **Summary Statistics**: Total items, pending/in-progress counts, priority breakdown
+- **High Priority Items**: Highlighted at the top for immediate attention
+- **In Progress Items**: Tasks you're currently working on
+- **Pending Items**: Tasks waiting to be started
+- **Rich Formatting**: HTML email with color-coded priorities and status badges
+- **Meeting Context**: Shows which meeting each action item originated from
+
 ### Using the Knowledge Base
 
 1. Navigate to the **Knowledge Base** page from the sidebar.
@@ -297,6 +365,14 @@ API routes are organized by feature area:
 | `POST`   | `/api/knowledge/query`          | RAG query across knowledge base      |
 | `GET`    | `/api/knowledge/mind-map`       | Generate knowledge mind map          |
 
+### Email Notifications (`/api/notifications`)
+
+| Method   | Endpoint                        | Description                          |
+|----------|---------------------------------|--------------------------------------|
+| `GET`    | `/api/notifications/config`     | Get email configuration status       |
+| `POST`   | `/api/notifications/test`       | Send test notification to email      |
+| `POST`   | `/api/notifications/test-connection` | Test SMTP connection             |
+
 Interactive API docs are available at **http://127.0.0.1:8000/docs** (Swagger UI).
 
 ## Project Structure
@@ -345,7 +421,9 @@ agendino/
 │   │   ├── ObsidianService.py           # Obsidian vault integration
 │   │   ├── RAGService.py                # RAG queries and mind mapping
 │   │   ├── ClaudeSummarizationService.py # Claude-based summarization
-│   │   └── ClaudeTaskGenerationService.py # Task extraction
+│   │   ├── ClaudeTaskGenerationService.py # Task extraction
+│   │   ├── EmailService.py              # SMTP email notifications
+│   │   └── DailyNotificationService.py  # Daily action items scheduler
 │   ├── static/                          # CSS & JS assets
 │   │   ├── dashboard.css                # Main dashboard styles
 │   │   ├── knowledge.css                # Knowledge base styles
