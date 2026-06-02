@@ -3,7 +3,7 @@ import logging
 import os
 import signal
 import sys
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import List, Dict
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,12 +47,12 @@ class DailyNotificationService:
 
                 # If target time has passed today, schedule for tomorrow
                 if target_time <= now:
-                    target_time = target_time.replace(day=target_time.day + 1)
+                    target_time = target_time + timedelta(days=1)
 
                 # Skip weekends if weekdays_only is True
                 if weekdays_only:
                     while target_time.weekday() >= 5:  # Saturday=5, Sunday=6
-                        target_time = target_time.replace(day=target_time.day + 1)
+                        target_time = target_time + timedelta(days=1)
 
                 # Calculate seconds until next notification
                 sleep_seconds = (target_time - now).total_seconds()
