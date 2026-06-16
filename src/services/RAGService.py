@@ -8,7 +8,7 @@ from json_repair import repair_json
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-4-6"
 
 MIND_MAP_PROMPT = """You are a knowledge-mapping expert. Analyze the summaries and produce a
 clean, hierarchical mind map.
