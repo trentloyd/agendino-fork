@@ -723,8 +723,8 @@ class DashboardController:
         try:
             import re
 
-            # Look for the Action Items section in the summary
-            action_items_match = re.search(r'### Action Items\s*.*?\n(.*?)(?=###|\Z)', summary_text, re.DOTALL | re.IGNORECASE)
+            # Look for the Action Items section in the summary (## or ### or #### level)
+            action_items_match = re.search(r'#{2,4} Action Items[^\n]*\n(.*?)(?=\n#{2,4} |\Z)', summary_text, re.DOTALL | re.IGNORECASE)
 
             if not action_items_match:
                 print("No Action Items section found in DefaultSummary")
