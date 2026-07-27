@@ -298,68 +298,112 @@ def render_person(person, meetings):
 
 
 # ---- main -------------------------------------------------------------------
-def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "preview"
-    opts = {"decisions": True, "risks": True, "questions": True}
+OPTS = {"decisions": True, "risks": True, "questions": True}
 
-    c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-    c.row_factory = sqlite3.Row
-    recs = c.execute("select id,name,recorded_at from recording order by recorded_at,id").fetchall()
+USAGE = """usage:
+  export_team_manager.py preview            # People notes + 3 sample meetings (overwrite)
+  export_team_manager.py full [--force]     # (re)generate everything (overwrites)
+  export_team_manager.py sync [--force]     # incremental: create missing meetings, refresh People
+  export_team_manager.py sync <rec_id>      # process one recording (event hook), refresh its person
+"""
 
+
+def build_people(c):
     people = defaultdict(list)   # person -> list of (date, rec_id, rec_name)
-    for r in recs:
+    for r in c.execute("select id,name,recorded_at from recording order by recorded_at,id"):
         p = canon_person(r["name"])
         if p:
             people[p].append(((r["recorded_at"] or "")[:10], r["id"], r["name"]))
+    return people
 
+
+def latest_summary(c, rid):
+    return c.execute(
+        "select * from summary where recording_id=? order by version desc limit 1", (rid,)
+    ).fetchone()
+
+
+def write_person_note(person, meetings):
+    with open(os.path.join(PEOPLE_DIR, f"{link_name(person)}.md"), "w") as f:
+        f.write(render_person(person, meetings))
+
+
+def write_meeting_note(c, person, date, rid, rname, overwrite, suffix=""):
+    """Return 'wrote' | 'skipped' | 'nosummary'. Never clobbers an existing note unless overwrite."""
+    s = latest_summary(c, rid)
+    if not s:
+        return "nosummary"
+    path = os.path.join(MEET_DIR, f"{date} {person}{suffix}.md")
+    if os.path.exists(path) and not overwrite:
+        return "skipped"
+    with open(path, "w") as f:
+        f.write(render_meeting(person, date, rname, s, OPTS))
+    return "wrote"
+
+
+def main():
+    argv = sys.argv[1:]
+    mode = argv[0] if argv else "preview"
+    force = "--force" in argv
+    rec_id = next((int(a) for a in argv[1:] if a.isdigit()), None)
+    if mode not in ("preview", "full", "sync"):
+        print(USAGE); return
+
+    c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    c.row_factory = sqlite3.Row
     os.makedirs(PEOPLE_DIR, exist_ok=True)
     os.makedirs(MEET_DIR, exist_ok=True)
+    people = build_people(c)
 
-    # roster
-    print(f"=== ROSTER: {len(people)} people, {sum(len(v) for v in people.values())} meetings ===")
+    # ---- single recording (event hook) ------------------------------------
+    if rec_id is not None:
+        rec = c.execute("select id,name,recorded_at from recording where id=?", (rec_id,)).fetchone()
+        if not rec:
+            print(f"recording {rec_id} not found"); return
+        person = canon_person(rec["name"])
+        if not person:
+            print(f"recording {rec_id} ({rec['name']}) is not a person 1:1 — skipped"); return
+        date = (rec["recorded_at"] or "")[:10]
+        res = write_meeting_note(c, person, date, rec_id, rec["name"], overwrite=(force or mode == "full"))
+        write_person_note(person, people.get(person, []))
+        print(f"[{res}] Meetings/{date} {person}.md  (+refreshed People/{link_name(person)}.md)")
+        return
+
+    # ---- preview: all People + 3 sample meetings (always overwrite) --------
+    if mode == "preview":
+        for p in sorted(people):
+            write_person_note(p, people[p])
+        for rid in (235, 227, 230):  # Alex, Heddy, Ariel — full modern structure
+            rec = c.execute("select name,recorded_at from recording where id=?", (rid,)).fetchone()
+            if not rec:
+                continue
+            p, date = canon_person(rec["name"]), (rec["recorded_at"] or "")[:10]
+            write_meeting_note(c, p, date, rid, rec["name"], overwrite=True)
+            print(f"\n----- PREVIEW: Meetings/{date} {p}.md -----\n")
+            print(open(os.path.join(MEET_DIR, f"{date} {p}.md")).read())
+        print(f"\nWrote {len(people)} People notes + 3 sample meetings (preview)")
+        return
+
+    # ---- full / sync (bulk) ------------------------------------------------
+    overwrite = force or mode == "full"
+    print(f"=== ROSTER: {len(people)} people, {sum(len(v) for v in people.values())} meetings "
+          f"(mode={mode}, overwrite={overwrite}) ===")
     for p in sorted(people):
         role, rel = ROLE.get(p, ("?", "team"))
         print(f"  {p:12} x{len(people[p]):2}  [{rel:7}] {role}")
+        write_person_note(p, people[p])
 
-    # write People notes (always)
-    for p in sorted(people):
-        path = os.path.join(PEOPLE_DIR, f"{link_name(p)}.md")
-        with open(path, "w") as f:
-            f.write(render_person(p, people[p]))
-    print(f"\nWrote {len(people)} People notes -> Team Manager/People/")
-
-    # collect meeting jobs, sorted by date
-    jobs = []
-    for p in sorted(people):
-        for date, rid, rname in people[p]:
-            jobs.append((date, p, rid, rname))
-    jobs.sort(key=lambda x: (x[0], x[1]))
-
-    if mode == "preview":
-        # 3 representative recent, well-structured meetings
-        picks = [235, 227, 230]  # Alex, Heddy, Ariel (July, full structure)
-        jobs = [j for j in jobs if j[2] in picks]
-
+    jobs = sorted(((d, p, rid, rn) for p in people for d, rid, rn in people[p]),
+                  key=lambda x: (x[0], x[1]))
     seen = {}
-    written = 0
+    stats = {"wrote": 0, "skipped": 0, "nosummary": 0}
     for date, p, rid, rname in jobs:
-        s = c.execute("select * from summary where recording_id=? order by version desc limit 1", (rid,)).fetchone()
-        if not s:
-            print(f"  SKIP (no summary): {rname}")
-            continue
         base = f"{date} {p}"
-        key = base
-        n = seen.get(key, 0)
-        seen[key] = n + 1
-        fname = base + (f" ({n+1})" if n else "") + ".md"
-        path = os.path.join(MEET_DIR, fname)
-        with open(path, "w") as f:
-            f.write(render_meeting(p, date, rname, s, opts))
-        written += 1
-        if mode == "preview":
-            print(f"\n----- PREVIEW: Meetings/{fname} -----\n")
-            print(open(path).read())
-    print(f"\nWrote {written} meeting notes -> Team Manager/Meetings/  (mode={mode})")
+        n = seen.get(base, 0); seen[base] = n + 1
+        stats[write_meeting_note(c, p, date, rid, rname, overwrite, f" ({n+1})" if n else "")] += 1
+    print(f"\nPeople: {len(people)} refreshed | "
+          f"Meetings: {stats['wrote']} wrote, {stats['skipped']} skipped (exist), "
+          f"{stats['nosummary']} no-summary  (mode={mode})")
 
 
 if __name__ == "__main__":

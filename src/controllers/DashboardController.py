@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
+import subprocess
+import sys
 from datetime import datetime
 
 from fastapi import Request
@@ -447,11 +450,16 @@ class DashboardController:
             prompt_id=prompt_id,
         )
 
+        recording = self._sqlite_db_repository.get_recording_by_name(bare_name)
+
         # Auto-extract action items from DefaultSummary
-        if prompt_id == "en/General/DefaultSummary":
-            recording = self._sqlite_db_repository.get_recording_by_name(bare_name)
-            if recording:
-                self._extract_action_items_from_summary(summary, saved, recording)
+        if prompt_id == "en/General/DefaultSummary" and recording:
+            self._extract_action_items_from_summary(summary, saved, recording)
+
+        # Auto-export this recording's 1:1 to the Obsidian "Team Manager" vault
+        # (no-op unless the recording is a person 1:1; create-if-missing, then commit+push).
+        if recording:
+            self._sync_team_manager(recording.id)
 
         return {
             "ok": True,
@@ -461,6 +469,31 @@ class DashboardController:
             "title": title,
             "tags": tags,
         }
+
+    def _sync_team_manager(self, recording_id: int) -> None:
+        """Fire-and-forget: export this recording to the Team Manager vault and push.
+
+        Runs the standalone exporter in incremental (create-if-missing) mode for a
+        single recording, then invokes the vault auto-commit script (as the git user).
+        Detached so it never blocks or fails the summarize response.
+        """
+        try:
+            exporter = "/opt/agendino/export_team_manager.py"
+            if not os.path.exists(exporter):
+                return
+            cmd = f"{sys.executable} {exporter} sync {int(recording_id)}"
+            commit_script = os.getenv("OBSIDIAN_AUTO_COMMIT_SCRIPT", "")
+            if commit_script and os.path.exists(commit_script):
+                cmd += f" && /usr/bin/sudo -u git {commit_script}"
+            with open("/opt/agendino/team_manager_sync.log", "a") as logf:
+                logf.write(f"\n=== sync recording {recording_id} @ {datetime.now().isoformat()} ===\n")
+                logf.flush()
+                subprocess.Popen(
+                    ["/bin/bash", "-c", cmd],
+                    stdout=logf, stderr=logf, start_new_session=True,
+                )
+        except Exception as e:
+            logging.error(f"Team Manager sync failed to launch for recording {recording_id}: {e}")
 
     def get_summaries(self, name: str) -> dict:
         bare_name = self._bare_name(name)
