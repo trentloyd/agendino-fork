@@ -484,7 +484,9 @@ class DashboardController:
             cmd = f"{sys.executable} {exporter} sync {int(recording_id)}"
             commit_script = os.getenv("OBSIDIAN_AUTO_COMMIT_SCRIPT", "")
             if commit_script and os.path.exists(commit_script):
-                cmd += f" && /usr/bin/sudo -u git {commit_script}"
+                # Run as the app user (owns the vault files) — not sudo -u git,
+                # which cannot modify app-user-owned notes during rebase/checkout.
+                cmd += f" && /bin/bash {commit_script}"
             with open("/opt/agendino/team_manager_sync.log", "a") as logf:
                 logf.write(f"\n=== sync recording {recording_id} @ {datetime.now().isoformat()} ===\n")
                 logf.flush()

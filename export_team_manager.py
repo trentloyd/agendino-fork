@@ -35,6 +35,7 @@ NONPERSON = {
     "Addressing", "Finalizing", "Candidate", "Hiring", "Leadership", "Personal",
     "Organizational", "Team", "Work", "Accessibility", "Mission", "April",
     "2026", "Frank",  # Frank = interview candidate, not a report
+    "PBR", "WBD", "MPU", "QBR", "Vacuum", "Product",  # review/meeting acronyms, not people
 }
 # Recording-name substrings that are group meetings even if they start w/ a name.
 GROUP_SUBSTR = ["Directs"]  # e.g. "Anna Directs - Bi-Weekly"

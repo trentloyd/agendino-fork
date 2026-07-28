@@ -112,7 +112,7 @@ type: agendino-transcript
                 try:
                     logging.info(f"Running auto-commit script: {self.auto_commit_script}")
                     result = subprocess.run(
-                        ['/usr/bin/sudo', '-u', 'git', self.auto_commit_script],
+                        ['/bin/bash', self.auto_commit_script],
                         capture_output=True,
                         text=True,
                         check=False
