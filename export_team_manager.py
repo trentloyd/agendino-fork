@@ -87,8 +87,9 @@ def canon_person(name):
     if m:
         disp = m.group(1)
     else:
-        # "Name [Initial. | Lastname] - <type...>"
-        m = re.match(rf"^([A-Z][a-z]+(?:\s+[A-Z]\.| [A-Z][a-z]+)?)\s*-\s*.*?{TYPE_RE}", base, re.I)
+        # "Name [Initial. | Lastname] - <type...>"  (hyphen before type is optional:
+        # tolerate a misnamed "Name Type" e.g. "Heddy Weekly" as well as "Heddy - Weekly")
+        m = re.match(rf"^([A-Z][a-z]+(?:\s+[A-Z]\.| [A-Z][a-z]+)?)\s*-?\s*.*?{TYPE_RE}", base, re.I)
         if m:
             disp = m.group(1).strip()
     if not disp:
