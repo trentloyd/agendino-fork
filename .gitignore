@@ -4,3 +4,10 @@
 *.db
 /htmlcov/
 /settings/vector_store/
+
+# Runtime logs & pids — never commit (they can capture credentials/tokens)
+*.log
+*.pid
+
+# Local virtualenv — should not be tracked
+.venv/

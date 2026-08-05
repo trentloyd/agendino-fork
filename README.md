@@ -27,6 +27,7 @@ Agendino is a web-based dashboard for managing, transcribing, and summarizing au
 - **Publishing Integrations** — Multiple publishing options:
   - **Notion** — Publish summaries as rich sub-pages with metadata callouts, tags, and formatted markdown
   - **Obsidian** — Export summaries to Obsidian vault with task conversion and auto-commit support
+  - **Team Manager (Obsidian)** — Automatically turn 1:1 recordings into a structured Obsidian "Team Manager" vault: a per-person note (role, relation, meeting history) and a per-meeting note (discussion points, decisions, action items). Detects 1:1s from the recording name and syncs on every new summary.
 - **Recording Metadata** — Edit titles and tags for any recording. Track transcription and summarization status across device, local, and database records.
 - **Email Notifications** — Daily email summaries of active action items with customizable scheduling and rich HTML formatting.
 - **Web Dashboard** — Multi-page web UI built with FastAPI, Jinja2 templates, and vanilla JavaScript.
@@ -194,6 +195,34 @@ The upload process handles files sequentially to avoid server overload and provi
 3. After summarizing a recording, click **Publish** and select **Obsidian** as the destination.
 4. The summary is exported as a markdown file in the `Agendino/` folder within your vault.
 5. Action items are automatically converted to Obsidian task checkboxes (`- [ ]`).
+
+#### Team Manager Export (1:1 Tracking)
+
+Agendino can mirror your 1:1 meeting recordings into a structured **Team Manager** area of your Obsidian vault, so each direct report / colleague has a running history of your conversations.
+
+- **People notes** (`Team Manager/People/<Name>.md`) — one per person, with role, relation (manager / peer / team / other), a running 1:1 count, and a Dataview table of all their meetings.
+- **Meeting notes** (`Team Manager/Meetings/<YYYY-MM-DD Name>.md`) — one per 1:1, with discussion points, decisions, risks/blockers, action items, and open questions extracted from the summary.
+
+**Naming convention.** A recording is detected as a 1:1 from its name, which must follow:
+
+```
+YYYY-MM-DD - <Person Name> - <Type>
+```
+
+where `<Type>` is one of `Weekly`, `Bi-Weekly`, `Monthly`, `One-Off`, `Intro`, `Travel`, or `MPU` (e.g. `2026-08-04 - Heddy - Weekly`). Group/team meetings and non-person names are ignored. The separator hyphen before the type is optional, so a slightly misnamed `2026-08-04 - Heddy Weekly` is still detected.
+
+**Automatic sync.** After every new summary, the recording is exported in create-if-missing mode and the vault is committed via `OBSIDIAN_AUTO_COMMIT_SCRIPT` (see `DashboardController._sync_team_manager`). No manual step is required.
+
+**Manual / bulk export** via the standalone `export_team_manager.py` script:
+
+```bash
+python export_team_manager.py preview        # People notes + 3 sample meetings
+python export_team_manager.py full [--force]  # (re)generate everything (overwrites)
+python export_team_manager.py sync            # incremental: create missing meetings, refresh People
+python export_team_manager.py sync <rec_id>   # process a single recording (used by the auto-sync hook)
+```
+
+> Note: the vault location and roster (`VAULT`, `ROLE`, aliases) are configured at the top of `export_team_manager.py`. The Agendino database is only ever read, never modified.
 
 ### Managing Action Items
 
@@ -445,6 +474,8 @@ agendino/
 ├── system_prompts/                      # Summarization prompt templates
 │   └── en/                              # English prompts
 ├── tests/                               # Unit & integration tests
+├── export_team_manager.py               # 1:1 → Obsidian "Team Manager" vault exporter
+├── auto_commit.py                       # Periodic auto-commit + push service
 ├── requirements.txt
 ├── requirements-dev.txt
 └── pyproject.toml
