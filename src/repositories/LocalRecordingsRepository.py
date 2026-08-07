@@ -51,3 +51,12 @@ class LocalRecordingsRepository:
             os.remove(path)
             return True
         return False
+
+    def rename(self, old_filename: str, new_filename: str) -> bool:
+        """Rename a local recording. Refuses to overwrite an existing file."""
+        old_path = os.path.join(self._local_recordings_path, old_filename)
+        new_path = os.path.join(self._local_recordings_path, new_filename)
+        if not os.path.isfile(old_path) or os.path.exists(new_path):
+            return False
+        os.rename(old_path, new_path)
+        return True

@@ -11,3 +11,7 @@
 
 # Local virtualenv — should not be tracked
 .venv/
+
+# Python bytecode caches — should not be tracked
+__pycache__/
+*.pyc

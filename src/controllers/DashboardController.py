@@ -67,6 +67,61 @@ class DashboardController:
         return name
 
     @staticmethod
+    def _normalize_key(bare_name: str) -> str:
+        """Collapse a bare name to a spacing/punctuation-insensitive key.
+
+        Used to pair a local file with its DB row when the on-disk name has
+        drifted cosmetically (e.g. "Heddy - Weekly" vs "Heddy Weekly").
+        """
+        return re.sub(r"[^a-z0-9]+", " ", bare_name.lower()).strip()
+
+    def _reconcile_orphan_files(self) -> None:
+        """Self-heal recordings whose on-disk filename drifted from the DB name.
+
+        A recording's name is set once in the DB at registration and also lives
+        as a file on disk; nothing keeps the two in sync afterwards. If the file
+        is later renamed slightly, the two no longer join by exact name and the
+        recording appears as two dashboard rows — one carrying the audio, one the
+        transcript/summary — with an uneditable date (the date PATCH updates the
+        DB row by exact name, which the file-only row has no match for).
+
+        Every endpoint joins a recording to its file by exact name, so we fix
+        this by renaming the file to the DB name rather than merging at display
+        time. Only unambiguous 1:1 normalized matches are acted on, and existing
+        files are never overwritten.
+        """
+        local_map = {self._bare_name(f): f for f in self._local_recordings_repository.get_all()}
+        db_names = {self._bare_name(r.name) for r in self._sqlite_db_repository.get_recordings()}
+
+        local_orphans = {b: f for b, f in local_map.items() if b not in db_names}
+        db_orphans = {b for b in db_names if b not in local_map}
+        if not local_orphans or not db_orphans:
+            return
+
+        def group(names):
+            groups: dict[str, list[str]] = {}
+            for name in names:
+                groups.setdefault(self._normalize_key(name), []).append(name)
+            return groups
+
+        local_by_norm = group(local_orphans.keys())
+        db_by_norm = group(db_orphans)
+
+        for norm, local_bares in local_by_norm.items():
+            db_bares = db_by_norm.get(norm, [])
+            if len(local_bares) != 1 or len(db_bares) != 1:
+                continue  # ambiguous — leave for manual resolution
+            src_file = local_orphans[local_bares[0]]
+            _, ext = os.path.splitext(src_file)
+            dst_file = f"{db_bares[0]}{ext}"
+            if self._local_recordings_repository.rename(src_file, dst_file):
+                logging.info(
+                    "Reconciled recording file '%s' -> '%s' (matched DB row by normalized name)",
+                    src_file,
+                    dst_file,
+                )
+
+    @staticmethod
     def _parse_recording_datetime(bare_name: str) -> str | None:
         try:
             parts = bare_name.split("-")
@@ -119,6 +174,7 @@ class DashboardController:
         return self._local_recordings_repository.get_all()
 
     def get_recordings_status(self) -> dict:
+        self._reconcile_orphan_files()
         local_files = self._local_recordings_repository.get_all()
         db_recordings = self._sqlite_db_repository.get_recordings()
         latest_summaries = self._sqlite_db_repository.get_latest_summaries_map()
